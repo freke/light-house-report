@@ -3,7 +3,6 @@ const path = require("path");
 const crypto = require("crypto");
 const lighthouse = require('lighthouse').default || require('lighthouse');
 const chromeLauncher = require("chrome-launcher");
-const puppeteer = require("puppeteer");
 
 let loadedUrls = [];
 try {
@@ -1309,39 +1308,7 @@ async function main() {
 
     fs.writeFileSync(dataPath, JSON.stringify(statsData, null, 2));
     generateVisualReport();
-    await generatePdfReport();
     console.log('\n🏁 Complete.');
-}
-
-async function generatePdfReport() {
-    console.log("\n📄 Generating PDF report...");
-    const reportPath = path.join(config.baseDir, "visual-summary.html");
-    const pdfPath = path.join(config.baseDir, "visual-summary.pdf");
-
-    if (!fs.existsSync(reportPath)) {
-        console.warn("   ⚠️ No HTML report found to convert.");
-        return;
-    }
-
-    const browser = await puppeteer.launch({
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
-    const page = await browser.newPage();
-
-    // Navigate to local file URI
-    const fileUrl = 'file://' + path.resolve(reportPath);
-    await page.goto(fileUrl, { waitUntil: 'networkidle0' });
-
-    await page.pdf({
-        path: pdfPath,
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
-    });
-
-    await browser.close();
-    console.log(`✨ PDF report saved: ${pdfPath}`);
 }
 
 main().catch(console.error);
