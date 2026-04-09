@@ -12,7 +12,6 @@
   "type": "commonjs",
   "dependencies": {
     "chrome-launcher": "^1.2.1",
-    "lighthouse": "^13.1.0",
-    "puppeteer": "^24.40.0"
+    "lighthouse": "^13.1.0"
   }
 }
