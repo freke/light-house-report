@@ -17,6 +17,7 @@
   packages = [
     pkgs.google-lighthouse
     pkgs.chromium
+    pkgs.just
   ];
   # See full reference at https://devenv.sh/reference/options/
 }
