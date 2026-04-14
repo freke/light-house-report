@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const ExcelJS = require("exceljs");
 const lighthouse = require('lighthouse').default || require('lighthouse');
 const chromeLauncher = require("chrome-launcher");
 
@@ -28,13 +29,195 @@ if (!fs.existsSync(runsDir)) fs.mkdirSync(runsDir, { recursive: true });
 const dataPath = path.join(config.baseDir, config.dataFile);
 let statsData = { runs: [], urls: {} };
 
-const args = process.argv.slice(2).reduce((acc, arg, i, arr) => {
-    if (arg === '--run' && arr[i + 1] !== undefined) {
-        const val = parseInt(arr[i + 1], 10);
-        if (!isNaN(val)) acc.runIterations = val;
+function parseArgs(argv) {
+    const parsed = {
+        runIterations: undefined,
+        testDate: '',
+        tester: '',
+        region: '',
+        excelOutput: undefined,
+        skipExcel: false
+    };
+
+    for (let index = 0; index < argv.length; index++) {
+        const arg = argv[index];
+        const next = argv[index + 1];
+
+        if (arg === '--run' && next !== undefined) {
+            const value = parseInt(next, 10);
+            if (!isNaN(value)) parsed.runIterations = value;
+            index += 1;
+            continue;
+        }
+
+        if (arg === '--date' && next !== undefined) {
+            parsed.testDate = next;
+            index += 1;
+            continue;
+        }
+
+        if (arg === '--tester' && next !== undefined) {
+            parsed.tester = next;
+            index += 1;
+            continue;
+        }
+
+        if (arg === '--region' && next !== undefined) {
+            parsed.region = next;
+            index += 1;
+            continue;
+        }
+
+        if (arg === '--excel-output' && next !== undefined) {
+            parsed.excelOutput = next;
+            index += 1;
+            continue;
+        }
+
+        if (arg === '--no-excel') {
+            parsed.skipExcel = true;
+        }
     }
-    return acc;
-}, { runIterations: undefined });
+
+    return parsed;
+}
+
+const args = parseArgs(process.argv.slice(2));
+
+function calculateAverage(arr, prefix, key) {
+    if (!arr || !arr.length) return 0;
+
+    const values = arr.map(entry => {
+        const value = prefix ? entry[prefix]?.[key] : entry[key];
+        return (value != null && !isNaN(value)) ? value : null;
+    }).filter(value => value !== null);
+
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function buildExcelRows() {
+    return Object.keys(statsData.urls).flatMap(url => {
+        const urlStats = statsData.urls[url];
+
+        return [
+            { mode: 'mobile', label: 'Mobile' },
+            { mode: 'desktop', label: 'Desktop' }
+        ].flatMap(({ mode, label }) => {
+            const entries = urlStats[mode] || [];
+            if (!entries.length) return [];
+
+            return [{
+                url,
+                type: label,
+                testDate: args.testDate || '',
+                tester: args.tester || '',
+                region: args.region || '',
+                fcp: calculateAverage(entries, 'metrics', 'fcp') / 1000,
+                lcp: calculateAverage(entries, 'metrics', 'lcp') / 1000,
+                tbt: Math.round(calculateAverage(entries, 'metrics', 'tbt')),
+                cls: calculateAverage(entries, 'metrics', 'cls'),
+                si: calculateAverage(entries, 'metrics', 'si') / 1000,
+                tti: calculateAverage(entries, 'metrics', 'tti') / 1000
+            }];
+        });
+    });
+}
+
+function getExcelOutputPath() {
+    if (args.excelOutput) {
+        return path.resolve(args.excelOutput);
+    }
+
+    return path.join(config.baseDir, 'visual-summary.xlsx');
+}
+
+async function writeExcelReport() {
+    if (args.skipExcel) {
+        console.log('⏭️ Skipping Excel export (--no-excel).');
+        return;
+    }
+
+    const rows = buildExcelRows();
+    if (!rows.length) {
+        console.warn('⚠️ No aggregated rows available for Excel export.');
+        return;
+    }
+
+    const outputPath = getExcelOutputPath();
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Parsed Results', {
+        views: [{ state: 'frozen', ySplit: 1 }]
+    });
+
+    const headers = [
+        'URL',
+        'Type',
+        'Test Date',
+        'Tester',
+        'Region',
+        'FCP (s)',
+        'LCP (s)',
+        'TBT (ms)',
+        'CLS',
+        'SI (s)',
+        'TTI (s)'
+    ];
+
+    const tableRows = rows.map(row => [
+        row.url,
+        row.type,
+        row.testDate,
+        row.tester,
+        row.region,
+        row.fcp,
+        row.lcp,
+        row.tbt,
+        row.cls,
+        row.si,
+        row.tti
+    ]);
+
+    worksheet.addTable({
+        name: 'ParsedResults',
+        ref: 'A1',
+        headerRow: true,
+        style: {
+            theme: 'TableStyleMedium2',
+            showRowStripes: true,
+            showColumnStripes: false
+        },
+        columns: headers.map(name => ({ name })),
+        rows: tableRows
+    });
+
+    const widths = [70, 12, 14, 18, 12, 10, 10, 11, 8, 10, 10];
+    widths.forEach((width, index) => {
+        worksheet.getColumn(index + 1).width = width;
+    });
+
+    worksheet.getRow(1).eachCell(cell => {
+        cell.alignment = { horizontal: 'center' };
+        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+        cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: '1F4E78' }
+        };
+    });
+
+    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+        worksheet.getCell(`F${rowIndex}`).numFmt = '0.00';
+        worksheet.getCell(`G${rowIndex}`).numFmt = '0.00';
+        worksheet.getCell(`H${rowIndex}`).numFmt = '0';
+        worksheet.getCell(`I${rowIndex}`).numFmt = '0.000';
+        worksheet.getCell(`J${rowIndex}`).numFmt = '0.00';
+        worksheet.getCell(`K${rowIndex}`).numFmt = '0.00';
+    }
+
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    await workbook.xlsx.writeFile(outputPath);
+    console.log(`📗 Excel summary updated: ${outputPath}`);
+}
 
 function extractDataFromReports() {
     console.log("📂 Extracting data from HTML reports...");
@@ -233,15 +416,6 @@ function generateVisualReport() {
     const urls = Object.keys(statsData.urls);
     const urlLabels = urls.map(u => statsData.urls[u].label);
 
-    const calcAvg = (arr, prefix, key) => {
-        if (!arr || !arr.length) return 0;
-        const values = arr.map(a => {
-            const val = prefix ? a[prefix]?.[key] : a[key];
-            return (val != null && !isNaN(val)) ? val : null;
-        }).filter(v => v !== null);
-        return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-    };
-
     const categoryKeys = ['performance', 'accessibility', 'best-practices', 'seo'];
     const mobileData = urls.map(u => statsData.urls[u].mobile);
     const desktopData = urls.map(u => statsData.urls[u].desktop);
@@ -251,27 +425,27 @@ function generateVisualReport() {
     const desktopRuns = statsData.runs.filter(r => r.mode === 'desktop').length;
     const runsPerUrl = mobileData[0] ? mobileData[0].length : 0;
 
-    const mobilePerf = mobileData.map(d => calcAvg(d, 'categories', 'performance'));
-    const desktopPerf = desktopData.map(d => calcAvg(d, 'categories', 'performance'));
-    const overallMobilePerf = calcAvg(statsData.runs.filter(r => r.mode === 'mobile'), 'categories', 'performance');
-    const overallDesktopPerf = calcAvg(statsData.runs.filter(r => r.mode === 'desktop'), 'categories', 'performance');
+    const mobilePerf = mobileData.map(d => calculateAverage(d, 'categories', 'performance'));
+    const desktopPerf = desktopData.map(d => calculateAverage(d, 'categories', 'performance'));
+    const overallMobilePerf = calculateAverage(statsData.runs.filter(r => r.mode === 'mobile'), 'categories', 'performance');
+    const overallDesktopPerf = calculateAverage(statsData.runs.filter(r => r.mode === 'desktop'), 'categories', 'performance');
 
     const mobileMetrics = urls.map(url => ({
-        fcp: calcAvg(statsData.urls[url].mobile, 'metrics', 'fcp'),
-        lcp: calcAvg(statsData.urls[url].mobile, 'metrics', 'lcp'),
-        tbt: calcAvg(statsData.urls[url].mobile, 'metrics', 'tbt'),
-        cls: calcAvg(statsData.urls[url].mobile, 'metrics', 'cls'),
-        si: calcAvg(statsData.urls[url].mobile, 'metrics', 'si'),
-        tti: calcAvg(statsData.urls[url].mobile, 'metrics', 'tti')
+        fcp: calculateAverage(statsData.urls[url].mobile, 'metrics', 'fcp'),
+        lcp: calculateAverage(statsData.urls[url].mobile, 'metrics', 'lcp'),
+        tbt: calculateAverage(statsData.urls[url].mobile, 'metrics', 'tbt'),
+        cls: calculateAverage(statsData.urls[url].mobile, 'metrics', 'cls'),
+        si: calculateAverage(statsData.urls[url].mobile, 'metrics', 'si'),
+        tti: calculateAverage(statsData.urls[url].mobile, 'metrics', 'tti')
     }));
 
     const desktopMetrics = urls.map(url => ({
-        fcp: calcAvg(statsData.urls[url].desktop, 'metrics', 'fcp'),
-        lcp: calcAvg(statsData.urls[url].desktop, 'metrics', 'lcp'),
-        tbt: calcAvg(statsData.urls[url].desktop, 'metrics', 'tbt'),
-        cls: calcAvg(statsData.urls[url].desktop, 'metrics', 'cls'),
-        si: calcAvg(statsData.urls[url].desktop, 'metrics', 'si'),
-        tti: calcAvg(statsData.urls[url].desktop, 'metrics', 'tti')
+        fcp: calculateAverage(statsData.urls[url].desktop, 'metrics', 'fcp'),
+        lcp: calculateAverage(statsData.urls[url].desktop, 'metrics', 'lcp'),
+        tbt: calculateAverage(statsData.urls[url].desktop, 'metrics', 'tbt'),
+        cls: calculateAverage(statsData.urls[url].desktop, 'metrics', 'cls'),
+        si: calculateAverage(statsData.urls[url].desktop, 'metrics', 'si'),
+        tti: calculateAverage(statsData.urls[url].desktop, 'metrics', 'tti')
     }));
 
     const trendData = urls.map(url => ({
@@ -871,20 +1045,20 @@ function generateVisualReport() {
         const mobile = statsData.urls[url].mobile;
         const desktop = statsData.urls[url].desktop;
         const avgMobile = {
-            fcp: calcAvg(mobile, 'metrics', 'fcp'),
-            lcp: calcAvg(mobile, 'metrics', 'lcp'),
-            tbt: calcAvg(mobile, 'metrics', 'tbt'),
-            cls: calcAvg(mobile, 'metrics', 'cls'),
-            si: calcAvg(mobile, 'metrics', 'si'),
-            tti: calcAvg(mobile, 'metrics', 'tti')
+            fcp: calculateAverage(mobile, 'metrics', 'fcp'),
+            lcp: calculateAverage(mobile, 'metrics', 'lcp'),
+            tbt: calculateAverage(mobile, 'metrics', 'tbt'),
+            cls: calculateAverage(mobile, 'metrics', 'cls'),
+            si: calculateAverage(mobile, 'metrics', 'si'),
+            tti: calculateAverage(mobile, 'metrics', 'tti')
         };
         const avgDesktop = {
-            fcp: calcAvg(desktop, 'metrics', 'fcp'),
-            lcp: calcAvg(desktop, 'metrics', 'lcp'),
-            tbt: calcAvg(desktop, 'metrics', 'tbt'),
-            cls: calcAvg(desktop, 'metrics', 'cls'),
-            si: calcAvg(desktop, 'metrics', 'si'),
-            tti: calcAvg(desktop, 'metrics', 'tti')
+            fcp: calculateAverage(desktop, 'metrics', 'fcp'),
+            lcp: calculateAverage(desktop, 'metrics', 'lcp'),
+            tbt: calculateAverage(desktop, 'metrics', 'tbt'),
+            cls: calculateAverage(desktop, 'metrics', 'cls'),
+            si: calculateAverage(desktop, 'metrics', 'si'),
+            tti: calculateAverage(desktop, 'metrics', 'tti')
         };
         return [
             buildMetricsRow(avgMobile, url, 'Mobile'),
@@ -1308,6 +1482,7 @@ async function main() {
 
     fs.writeFileSync(dataPath, JSON.stringify(statsData, null, 2));
     generateVisualReport();
+    await writeExcelReport();
     console.log('\n🏁 Complete.');
 }
 

@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "chrome-launcher": "^1.2.1",
+    "exceljs": "^4.4.0",
     "lighthouse": "^13.1.0"
   }
 }
