@@ -1,46 +1,35 @@
 #!/usr/bin/env node
-"use strict";
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
 
 // src/config.ts
-var fs, path, loadedUrls, config, runsDir, dataPath, args;
+import * as fs from "fs";
+import * as path from "path";
+import { fileURLToPath } from "url";
+var __filename, __dirname, loadedUrls, config, runsDir, dataPath, args;
 var init_config = __esm({
   "src/config.ts"() {
     "use strict";
-    fs = __toESM(require("fs"));
-    path = __toESM(require("path"));
+    __filename = fileURLToPath(import.meta.url);
+    __dirname = path.dirname(__filename);
     loadedUrls = [];
     try {
-      loadedUrls = require("./urls.json");
+      const urlsPath = path.resolve(__dirname, "urls.json");
+      loadedUrls = JSON.parse(fs.readFileSync(urlsPath, "utf8"));
     } catch {
-      console.error(
-        "\u274C Fatal: Could not load urls.json. Please create it with an array of URLs."
-      );
-      process.exit(1);
+      try {
+        loadedUrls = JSON.parse(fs.readFileSync("./urls.json", "utf8"));
+      } catch {
+        console.error(
+          "\u274C Fatal: Could not load urls.json. Please create it with an array of URLs."
+        );
+        process.exit(1);
+      }
     }
     config = {
       urls: loadedUrls,
@@ -75,6 +64,7 @@ var init_config = __esm({
 });
 
 // src/utils.ts
+import * as crypto from "crypto";
 function getUrlHash(url) {
   return crypto.createHash("md5").update(url).digest("hex").slice(0, 8);
 }
@@ -86,16 +76,17 @@ function getUrlLabel(url) {
     return url;
   }
 }
-var crypto, sleep;
+var sleep;
 var init_utils = __esm({
   "src/utils.ts"() {
     "use strict";
-    crypto = __toESM(require("crypto"));
-    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
   }
 });
 
 // src/data-extract.ts
+import * as fs2 from "fs";
+import * as path2 from "path";
 function avgValues(values) {
   const valid = values.filter((v) => v != null && !isNaN(v));
   if (valid.length === 0) return null;
@@ -240,15 +231,272 @@ function extractDataFromReports() {
   console.log(`   \u2713 Extracted ${totalRaw} iterations \u2192 ${totalAveraged} averaged run data points.`);
   return extracted;
 }
-var fs2, path2, LEGACY_GROUP_GAP_MS;
+var LEGACY_GROUP_GAP_MS;
 var init_data_extract = __esm({
   "src/data-extract.ts"() {
     "use strict";
-    fs2 = __toESM(require("fs"));
-    path2 = __toESM(require("path"));
     init_utils();
     init_config();
     LEGACY_GROUP_GAP_MS = 30 * 60 * 1e3;
+  }
+});
+
+// src/compression.ts
+import * as fs3 from "fs";
+import * as path3 from "path";
+import { execFileSync } from "child_process";
+import * as os from "os";
+function compressReportImages(filePath, quality = 30) {
+  let content = fs3.readFileSync(filePath, "utf8");
+  const originalSize = Buffer.byteLength(content, "utf8");
+  const imgRegex = /data:image\/(jpeg|png|webp);base64,([^"\s>}\]]+)/g;
+  let match;
+  let imagesProcessed = 0;
+  const replacements = [];
+  while ((match = imgRegex.exec(content)) !== null) {
+    const [fullMatch, imgType, b64Data] = match;
+    try {
+      const inputBuf = Buffer.from(b64Data, "base64");
+      if (imgType === "webp" && inputBuf.length < 50 * 1024) {
+        continue;
+      }
+      const uid = `${Date.now()}_${imagesProcessed}`;
+      const ext = imgType === "jpeg" ? "jpg" : imgType;
+      const tmpIn = path3.join(os.tmpdir(), `lhr_img_${uid}.${ext}`);
+      const tmpOut = path3.join(os.tmpdir(), `lhr_img_${uid}.webp`);
+      const useQuality = imgType === "webp" ? Math.min(quality * 2, 80) : quality;
+      fs3.writeFileSync(tmpIn, inputBuf);
+      execFileSync("convert", [tmpIn, "-quality", String(useQuality), tmpOut], {
+        timeout: 15e3
+      });
+      const outputBuf = fs3.readFileSync(tmpOut);
+      if (outputBuf.length < inputBuf.length) {
+        const newB64 = outputBuf.toString("base64");
+        replacements.push({
+          original: fullMatch,
+          replacement: `data:image/webp;base64,${newB64}`
+        });
+        imagesProcessed++;
+      }
+      try {
+        fs3.unlinkSync(tmpIn);
+      } catch {
+      }
+      try {
+        fs3.unlinkSync(tmpOut);
+      } catch {
+      }
+    } catch {
+    }
+  }
+  for (const { original, replacement } of replacements) {
+    content = content.replace(original, replacement);
+  }
+  fs3.writeFileSync(filePath, content);
+  const compressedSize = Buffer.byteLength(content, "utf8");
+  return { originalSize, compressedSize, imagesProcessed };
+}
+function compressAllReports(quality) {
+  const files = fs3.readdirSync(runsDir).filter((f) => f.endsWith(".html"));
+  console.log(
+    `
+\u{1F5DC}\uFE0F  Compressing ${files.length} HTML reports (WebP quality: ${quality})...`
+  );
+  let totalOriginal = 0;
+  let totalCompressed = 0;
+  let totalImages = 0;
+  let skipped = 0;
+  for (const file of files) {
+    const filePath = path3.join(runsDir, file);
+    const content = fs3.readFileSync(filePath, "utf8");
+    const hasNonWebp = /data:image\/(jpeg|png);base64,/.test(content);
+    const hasLargeWebp = /data:image\/webp;base64,([^"\s>}]{68000,})/.test(content);
+    if (!hasNonWebp && !hasLargeWebp) {
+      skipped++;
+      continue;
+    }
+    const result = compressReportImages(filePath, quality);
+    totalOriginal += result.originalSize;
+    totalCompressed += result.compressedSize;
+    totalImages += result.imagesProcessed;
+    const saved = ((1 - result.compressedSize / result.originalSize) * 100).toFixed(0);
+    console.log(
+      `   \u2713 ${file}: ${(result.originalSize / 1024).toFixed(0)}KB \u2192 ${(result.compressedSize / 1024).toFixed(0)}KB (-${saved}%, ${result.imagesProcessed} images)`
+    );
+  }
+  const totalSaved = totalOriginal > 0 ? ((1 - totalCompressed / totalOriginal) * 100).toFixed(0) : 0;
+  console.log(`
+\u{1F4CA} Compression summary:`);
+  console.log(
+    `   Files processed: ${files.length - skipped} (${skipped} already compressed)`
+  );
+  console.log(`   Images converted: ${totalImages}`);
+  if (totalOriginal > 0) {
+    console.log(
+      `   Total: ${(totalOriginal / 1024 / 1024).toFixed(1)}MB \u2192 ${(totalCompressed / 1024 / 1024).toFixed(1)}MB (-${totalSaved}%)`
+    );
+  }
+}
+var init_compression = __esm({
+  "src/compression.ts"() {
+    "use strict";
+    init_config();
+  }
+});
+
+// src/lighthouse.ts
+import * as fs4 from "fs";
+import * as path4 from "path";
+import lighthouse from "lighthouse";
+import desktopConfig from "lighthouse/core/config/desktop-config.js";
+import * as chromeLauncher from "chrome-launcher";
+function safeGet(obj, key) {
+  return obj && obj[key] != null ? obj[key] : void 0;
+}
+function stripScreenshots(lhr) {
+  const cleaned = JSON.parse(JSON.stringify(lhr));
+  delete cleaned.fullPageScreenshot;
+  if (cleaned.audits) {
+    for (const [key, audit] of Object.entries(cleaned.audits)) {
+      const a = audit;
+      if (a.details && a.details.type === "screenshot") {
+        delete cleaned.audits[key];
+      }
+    }
+  }
+  return cleaned;
+}
+function createSummary(url, urlHash, mode, timestamp, fileName, categories, metrics, runId) {
+  return {
+    id: `${urlHash}-${mode}-${timestamp}`,
+    url,
+    urlLabel: getUrlLabel(url),
+    mode,
+    timestamp,
+    fileName,
+    categories,
+    metrics,
+    ...runId != null ? { runId } : {}
+  };
+}
+async function runLighthouse(url, iteration, mode, runId) {
+  const chrome = await chromeLauncher.launch({
+    chromePath: "chromium",
+    chromeFlags: ["--headless", "--no-sandbox", "--disable-gpu"]
+  });
+  const isDesktop = mode === "desktop";
+  const isWifi = mode === "mobile-wifi";
+  const isThrottled = mode === "mobile-4g";
+  const options = {
+    logLevel: "info",
+    output: "json",
+    port: chrome.port,
+    formFactor: isDesktop ? "desktop" : "mobile",
+    // screenEmulation handled by config, but we can override here if needed
+    throttlingMethod: isDesktop || isWifi ? "provided" : "simulate"
+  };
+  let configObj = void 0;
+  if (isDesktop) {
+    configObj = {
+      ...desktopConfig,
+      settings: {
+        ...desktopConfig.settings,
+        throttlingMethod: "provided"
+      }
+    };
+  }
+  const urlHash = getUrlHash(url);
+  console.log(`
+\u{1F680} [${mode.toUpperCase()}] Audit: ${url} (ID: ${urlHash})`);
+  try {
+    const runnerResult = await lighthouse(url, options, configObj);
+    if (!runnerResult) {
+      throw new Error("Lighthouse returned no result");
+    }
+    const lhr = runnerResult.lhr;
+    const categories = {
+      performance: (safeGet(lhr.categories.performance, "score") || 0) * 100,
+      accessibility: (safeGet(lhr.categories.accessibility, "score") || 0) * 100,
+      "best-practices": (safeGet(lhr.categories["best-practices"], "score") || 0) * 100,
+      seo: (safeGet(lhr.categories.seo, "score") || 0) * 100
+    };
+    const keyMetrics = {
+      fcp: safeGet(lhr.audits["first-contentful-paint"], "numericValue") || null,
+      lcp: safeGet(lhr.audits["largest-contentful-paint"], "numericValue") || null,
+      tbt: safeGet(lhr.audits["total-blocking-time"], "numericValue") || null,
+      cls: safeGet(lhr.audits["cumulative-layout-shift"], "numericValue") || null,
+      si: safeGet(lhr.audits["speed-index"], "numericValue") || null,
+      tti: safeGet(lhr.audits["interactive"], "numericValue") || null,
+      fid: safeGet(lhr.audits["max-potential-fid"], "numericValue") || null,
+      inp: safeGet(lhr.audits["interaction-to-next-paint"], "numericValue") || null,
+      fcp1: safeGet(lhr.audits["first-contentful-paint-1"], "numericValue") || null,
+      lcp1: safeGet(lhr.audits["largest-contentful-paint-1"], "numericValue") || null,
+      lcpLate: safeGet(lhr.audits["lcp-largest-contentful-paint"], "numericValue") || null,
+      fcpL: safeGet(lhr.audits["first-contentful-paint-1"], "numericValue") || null,
+      serverResponse: safeGet(lhr.audits["server-response-time"], "numericValue") || null,
+      domSize: safeGet(lhr.audits["dom-size"], "numericValue") || null,
+      mainThreadWork: safeGet(lhr.audits["mainthread-work-breakdown"], "numericValue") || null,
+      jsExecTime: safeGet(lhr.audits["runtime-external-javascript"], "numericValue") || null,
+      networkRequests: safeGet(lhr.audits["network-requests"], "numericValue") || null,
+      totalByteWeight: safeGet(lhr.audits["network-summary"], "numericValue") || null
+    };
+    const metrics = keyMetrics;
+    const timestamp = Date.now();
+    const fileName = `${urlHash}-${mode}-${timestamp}.json`;
+    const runData = {
+      id: `${urlHash}-${mode}-${timestamp}`,
+      url,
+      urlLabel: getUrlLabel(url),
+      mode,
+      iteration,
+      timestamp,
+      fileName,
+      categories,
+      metrics,
+      ...runId != null ? { runId } : {}
+    };
+    statsData.runs.push(runData);
+    if (!statsData.urls[url]) {
+      statsData.urls[url] = {
+        label: getUrlLabel(url),
+        modes: {},
+        modesRaw: {}
+      };
+    }
+    if (!statsData.urls[url].modesRaw[mode]) {
+      statsData.urls[url].modesRaw[mode] = [];
+    }
+    statsData.urls[url].modesRaw[mode].push({
+      iteration,
+      timestamp,
+      fileName,
+      categories,
+      metrics,
+      ...runId != null ? { runId } : {}
+    });
+    const reportFilePath = path4.join(runsDir, fileName);
+    const cleanedLhr = stripScreenshots(lhr);
+    fs4.writeFileSync(reportFilePath, JSON.stringify(cleanedLhr, null, 2));
+    const summary = createSummary(url, urlHash, mode, timestamp, fileName, categories, metrics, runId);
+    const summaryPath = path4.join(runsDir, `${urlHash}-${mode}-${timestamp}.summary.json`);
+    fs4.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+    fs4.writeFileSync(dataPath, JSON.stringify(statsData, null, 2));
+    console.log(
+      `\u2705 Perf: ${categories.performance.toFixed(0)} | FCP: ${((metrics.fcp || 0) / 1e3).toFixed(2)}s | LCP: ${((metrics.lcp || 0) / 1e3).toFixed(2)}s | TBT: ${metrics.tbt || "-"}ms | Saved: ${fileName}`
+    );
+  } catch (error) {
+    console.error(`\u274C Failed to audit ${url}:`, error.message);
+  } finally {
+    await chrome.kill();
+  }
+}
+var statsData;
+var init_lighthouse = __esm({
+  "src/lighthouse.ts"() {
+    "use strict";
+    init_utils();
+    init_config();
+    statsData = { runs: [], urls: {} };
   }
 });
 
@@ -574,17 +822,51 @@ tr:hover td {
   white-space: nowrap;
 }
 
+.url-cell a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.url-cell a:hover {
+  text-decoration: underline;
+}
+
+.explainer-box {
+  background: var(--chart-bg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-top: 1.5rem;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+  max-width: 900px;
+}
+
+.explainer-box strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.mode-cell {
+  white-space: nowrap !important;
+}
+
 .badge {
+  display: inline-block;
   padding: 8px 14px;
   border-radius: 10px;
   font-size: 0.7rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 1px;
+  white-space: nowrap !important;
 }
 
-.badge.mobile { background: hsla(25, 95%, 60%, 0.15); color: hsl(25, 95%, 60%); border: 1px solid hsla(25, 95%, 60%, 0.3); }
-.badge.desktop { background: hsla(210, 100%, 55%, 0.15); color: hsl(210, 100%, 55%); border: 1px solid hsla(210, 100%, 55%, 0.3); }
+.badge.mobile, .badge.mobile-4g { background: hsla(25, 95%, 55%, 0.15); color: hsl(25, 95%, 55%); border: 1px solid hsla(25, 95%, 55%, 0.3); }
+.badge.mobile-wifi { background: hsla(45, 95%, 50%, 0.15); color: hsl(45, 95%, 50%); border: 1px solid hsla(45, 95%, 50%, 0.3); }
+.badge.desktop { background: hsla(210, 100%, 50%, 0.15); color: hsl(210, 100%, 50%); border: 1px solid hsla(210, 100%, 50%, 0.3); }
 
 .good { color: var(--success); font-weight: 800; }
 .avg { color: var(--warning); font-weight: 800; }
@@ -620,7 +902,8 @@ tr:hover td {
   .chart-header h3 { font-size: 1.4rem !important; margin-bottom: 0.2rem !important; }
   .chart-header p { font-size: 0.95rem !important; }
   td, th { padding: 0.8rem !important; font-size: 0.8rem !important; }
-  .url-cell { font-size: 0.75rem !important; max-width: 300px !important; direction: rtl; text-align: left; word-break: break-all; }
+  .url-cell { font-size: 0.65rem !important; max-width: 220px !important; direction: rtl; text-align: left; word-break: break-all; }
+  .badge { font-size: 0.55rem !important; padding: 4px 8px !important; letter-spacing: 0.5px !important; }
   .timeline-slider-container { display: none !important; }
 }
 
@@ -858,6 +1141,7 @@ var init_client = __esm({
   return label || '';
 };
 
+const urlLabels = INJECT_urlLabels;
 const allModes = INJECT_allModes;
 const modePerf = INJECT_modePerf;
 const modeMetrics = INJECT_modeMetrics;
@@ -867,6 +1151,7 @@ const allRunsData = INJECT_allRunsData;
 const colors = {
   blue: 'hsl(210, 100%, 50%)',
   orange: 'hsl(25, 95%, 55%)',
+  amber: 'hsl(45, 95%, 50%)',
   teal: 'hsl(170, 70%, 45%)',
   gray: 'hsl(220, 15%, 50%)',
   purple: 'hsl(270, 70%, 60%)',
@@ -876,8 +1161,7 @@ const colors = {
 const modeColors = {
   'desktop': colors.blue,
   'mobile-4g': colors.orange,
-  'mobile-wifi': colors.teal,
-  'mobile': colors.orange, // Fallback
+  'mobile-wifi': colors.amber,
 };
 
 const getModeColor = (mode) => modeColors[mode] || colors.purple;
@@ -1328,7 +1612,7 @@ const showRunModal = (summary) => {
   const mode = document.getElementById('modalMode');
   
   title.textContent = summary.urlLabel || summary.id;
-  url.textContent = summary.url;
+  url.innerHTML = '<a href="' + summary.url + '" target="_blank" rel="noopener noreferrer">' + summary.url + '</a>';
   
   const catLabels = { performance: 'Performance', accessibility: 'Accessibility', 'best-practices': 'Best Practices', seo: 'SEO' };
   categories.innerHTML = Object.entries(summary.categories).map(([key, val]) => {
@@ -1410,7 +1694,7 @@ function buildMetricsRow(metrics, url, prefix) {
     return "poor";
   };
   return `<tr class="${prefix.toLowerCase()}">
-    <td class="url-cell" title="${url}">${url}</td>
+    <td class="url-cell" title="${url}"><a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a></td>
     <td class="mode-cell"><span class="badge ${prefix.toLowerCase()}">${prefix}</span></td>
     <td class="${getGrade(metrics.fcp, [1800, 3e3])}">${fcp}</td>
     <td class="${getGrade(metrics.lcp, [2500, 4e3])}">${lcp}</td>
@@ -1420,9 +1704,9 @@ function buildMetricsRow(metrics, url, prefix) {
     <td class="${getGrade(metrics.tti, [3800, 7300])}">${tti}</td>
   </tr>`;
 }
-function generateHtml(statsData3) {
+function generateHtml(statsData2) {
   const reportPath = `${config.baseDir}/visual-summary.html`;
-  const urls = Object.keys(statsData3.urls);
+  const urls = Object.keys(statsData2.urls);
   const urlLabels = urls.map((u) => {
     try {
       const url = new URL(u);
@@ -1432,62 +1716,34 @@ function generateHtml(statsData3) {
     }
   });
   const categoryKeys = ["performance", "accessibility", "best-practices", "seo"];
-  const allModes = Array.from(new Set(Object.values(statsData3.urls).flatMap((u) => Object.keys(u.modes))));
+  const allModes = Array.from(new Set(Object.values(statsData2.urls).flatMap((u) => Object.keys(u.modes))));
   const modeDataAvg = {};
   const modeDataRaw = {};
   const modePerf = {};
   const overallModePerf = {};
   const modeMetrics = {};
   for (const mode of allModes) {
-    modeDataAvg[mode] = urls.map((u) => statsData3.urls[u].modes[mode] || []);
-    modeDataRaw[mode] = urls.map((u) => statsData3.urls[u].modesRaw[mode] || []);
+    modeDataAvg[mode] = urls.map((u) => statsData2.urls[u].modes[mode] || []);
+    modeDataRaw[mode] = urls.map((u) => statsData2.urls[u].modesRaw[mode] || []);
     modePerf[mode] = modeDataAvg[mode].map((d) => calcWeightedAvg(d, "categories", "performance"));
     overallModePerf[mode] = calcWeightedAvg(modeDataAvg[mode].flat(), "categories", "performance");
     modeMetrics[mode] = urls.map((url) => ({
-      fcp: calcWeightedAvg(statsData3.urls[url].modes[mode] || [], "metrics", "fcp"),
-      lcp: calcWeightedAvg(statsData3.urls[url].modes[mode] || [], "metrics", "lcp"),
-      tbt: calcWeightedAvg(statsData3.urls[url].modes[mode] || [], "metrics", "tbt"),
-      cls: calcWeightedAvg(statsData3.urls[url].modes[mode] || [], "metrics", "cls"),
-      si: calcWeightedAvg(statsData3.urls[url].modes[mode] || [], "metrics", "si"),
-      tti: calcWeightedAvg(statsData3.urls[url].modes[mode] || [], "metrics", "tti")
+      fcp: calcWeightedAvg(statsData2.urls[url].modes[mode] || [], "metrics", "fcp"),
+      lcp: calcWeightedAvg(statsData2.urls[url].modes[mode] || [], "metrics", "lcp"),
+      tbt: calcWeightedAvg(statsData2.urls[url].modes[mode] || [], "metrics", "tbt"),
+      cls: calcWeightedAvg(statsData2.urls[url].modes[mode] || [], "metrics", "cls"),
+      si: calcWeightedAvg(statsData2.urls[url].modes[mode] || [], "metrics", "si"),
+      tti: calcWeightedAvg(statsData2.urls[url].modes[mode] || [], "metrics", "tti")
     }));
   }
-  const totalRuns = statsData3.runs.length;
-  const allAveragedRuns = Object.values(statsData3.urls).flatMap((u) => Object.values(u.modes).flat());
+  const totalRuns = statsData2.runs.length;
+  const allAveragedRuns = Object.values(statsData2.urls).flatMap((u) => Object.values(u.modes).flat());
   const totalRunGroups = allAveragedRuns.length;
   const avgIterations = totalRunGroups > 0 ? allAveragedRuns.reduce((sum, r) => sum + (r.iterationCount || 1), 0) / totalRunGroups : 0;
-  const mobilePerf = mobileData.map((d) => calcWeightedAvg(d, "categories", "performance"));
-  const desktopPerf = desktopData.map((d) => calcWeightedAvg(d, "categories", "performance"));
-  const overallMobilePerf = calcWeightedAvg(
-    mobileData.flat(),
-    "categories",
-    "performance"
-  );
-  const overallDesktopPerf = calcWeightedAvg(
-    desktopData.flat(),
-    "categories",
-    "performance"
-  );
-  const mobileMetrics = urls.map((url) => ({
-    fcp: calcWeightedAvg(statsData3.urls[url].mobile, "metrics", "fcp"),
-    lcp: calcWeightedAvg(statsData3.urls[url].mobile, "metrics", "lcp"),
-    tbt: calcWeightedAvg(statsData3.urls[url].mobile, "metrics", "tbt"),
-    cls: calcWeightedAvg(statsData3.urls[url].mobile, "metrics", "cls"),
-    si: calcWeightedAvg(statsData3.urls[url].mobile, "metrics", "si"),
-    tti: calcWeightedAvg(statsData3.urls[url].mobile, "metrics", "tti")
-  }));
-  const desktopMetrics = urls.map((url) => ({
-    fcp: calcWeightedAvg(statsData3.urls[url].desktop, "metrics", "fcp"),
-    lcp: calcWeightedAvg(statsData3.urls[url].desktop, "metrics", "lcp"),
-    tbt: calcWeightedAvg(statsData3.urls[url].desktop, "metrics", "tbt"),
-    cls: calcWeightedAvg(statsData3.urls[url].desktop, "metrics", "cls"),
-    si: calcWeightedAvg(statsData3.urls[url].desktop, "metrics", "si"),
-    tti: calcWeightedAvg(statsData3.urls[url].desktop, "metrics", "tti")
-  }));
   const trendData = urls.map((url) => {
     const modesTrend = {};
     for (const mode of allModes) {
-      modesTrend[mode] = (statsData3.urls[url].modes[mode] || []).map((r) => ({
+      modesTrend[mode] = (statsData2.urls[url].modes[mode] || []).map((r) => ({
         x: r.timestamp,
         y: r.categories.performance,
         iterationCount: r.iterationCount || 1,
@@ -1514,7 +1770,7 @@ function generateHtml(statsData3) {
       modes: modesTrend
     };
   });
-  const allRunsData = statsData3.runs.map((r) => ({
+  const allRunsData = statsData2.runs.map((r) => ({
     urlIndex: urls.indexOf(r.url),
     urlLabel: (() => {
       try {
@@ -1540,7 +1796,7 @@ function generateHtml(statsData3) {
   }));
   const metricsRows = urls.flatMap((url) => {
     return allModes.map((mode) => {
-      const entries = statsData3.urls[url].modes[mode] || [];
+      const entries = statsData2.urls[url].modes[mode] || [];
       if (entries.length === 0) return "";
       const avg = {
         fcp: calcWeightedAvg(entries, "metrics", "fcp"),
@@ -1617,6 +1873,10 @@ function generateHtml(statsData3) {
             <div class="section-header">
                 <h2>Executive Summary</h2>
                 <p>A high-level health check of your digital property. Scores are time-weighted (7-day half-life) \u2014 recent runs have more influence than older ones.</p>
+                <div class="explainer-box">
+                    <strong>Total Audits:</strong> The total number of individual Lighthouse iterations run across all pages.<br><br>
+                    <strong>Mode Health:</strong> An overall performance score from 0 to 100 for that specific device and network profile. A score of 90+ is considered Good. It is calculated by taking the weighted average of the Performance category score for all URLs, where newer tests are weighted exponentially more heavily than older tests (7-day half-life).
+                </div>
             </div>
 
             <div class="stats-grid">
@@ -1665,6 +1925,14 @@ function generateHtml(statsData3) {
             <div class="section-header">
                 <h2>Technical Vitals Analysis</h2>
                 <p>Detailed performance telemetry based on Google's Core Web Vitals. Values are time-weighted averages.</p>
+                <div class="explainer-box">
+                    <strong>FCP (First Contentful Paint):</strong> Time until the first text or image is painted. Lower is better.<br>
+                    <strong>LCP (Largest Contentful Paint):</strong> Time until the largest text or image block is rendered. Critical for perceived load speed.<br>
+                    <strong>TBT (Total Blocking Time):</strong> Total amount of time between FCP and Time to Interactive where the main thread was blocked long enough to prevent input responsiveness.<br>
+                    <strong>CLS (Cumulative Layout Shift):</strong> Measures visual stability. A score below 0.1 is Good.<br>
+                    <strong>SI (Speed Index):</strong> How quickly the contents of a page are visibly populated.<br>
+                    <strong>TTI (Time to Interactive):</strong> Amount of time it takes for the page to become fully interactive.
+                </div>
             </div>
 
             <div id="metricsChartsContainer">
@@ -1709,6 +1977,10 @@ function generateHtml(statsData3) {
             <div class="section-header">
                 <h2>Stability & Landscape Analysis</h2>
                 <p>Tracking variability and consistency over time.</p>
+                <div class="explainer-box">
+                    <strong>Performance Envelope (Box Plot):</strong> Shows the distribution of scores across multiple runs. The box represents the middle 50% of your scores, and the vertical line inside is the median. A smaller, tighter box indicates highly consistent performance.<br><br>
+                    <strong>Iterative Progression (Line Chart):</strong> Tracks how the time-weighted average score has changed over time. Dashed lines indicate unthrottled environments (Desktop, Mobile WiFi), while solid lines represent throttled environments (Mobile 4G).
+                </div>
             </div>
 
             <div class="chart-container">
@@ -1797,301 +2069,66 @@ var init_template = __esm({
 });
 
 // src/dashboard/index.ts
-function generateVisualReport(statsData3) {
+import * as fs5 from "fs";
+import * as path5 from "path";
+function generateVisualReport(statsData2) {
   const reportPath = path5.join(config.baseDir, "visual-summary.html");
-  const htmlContent = generateHtml(statsData3);
+  const htmlContent = generateHtml(statsData2);
   fs5.writeFileSync(reportPath, htmlContent);
   console.log(`
 \u2728 Refined Premium Dashboard updated: ${reportPath}`);
 }
-var fs5, path5;
 var init_dashboard = __esm({
   "src/dashboard/index.ts"() {
     "use strict";
-    fs5 = __toESM(require("fs"));
-    path5 = __toESM(require("path"));
     init_template();
     init_config();
   }
 });
 
 // src/index.ts
-init_config();
-init_utils();
-init_data_extract();
-
-// src/compression.ts
-var fs3 = __toESM(require("fs"));
-var path3 = __toESM(require("path"));
-var import_child_process = require("child_process");
-var os = __toESM(require("os"));
-init_config();
-function compressReportImages(filePath, quality = 30) {
-  let content = fs3.readFileSync(filePath, "utf8");
-  const originalSize = Buffer.byteLength(content, "utf8");
-  const imgRegex = /data:image\/(jpeg|png|webp);base64,([^"\s>}\]]+)/g;
-  let match;
-  let imagesProcessed = 0;
-  const replacements = [];
-  while ((match = imgRegex.exec(content)) !== null) {
-    const [fullMatch, imgType, b64Data] = match;
-    try {
-      const inputBuf = Buffer.from(b64Data, "base64");
-      if (imgType === "webp" && inputBuf.length < 50 * 1024) {
-        continue;
+var require_index = __commonJS({
+  "src/index.ts"() {
+    init_config();
+    init_utils();
+    init_data_extract();
+    init_compression();
+    init_lighthouse();
+    init_dashboard();
+    var statsData2 = { runs: [], urls: {} };
+    async function main() {
+      if (args.compress) {
+        compressAllReports(args.quality);
+        return;
       }
-      const uid = `${Date.now()}_${imagesProcessed}`;
-      const ext = imgType === "jpeg" ? "jpg" : imgType;
-      const tmpIn = path3.join(os.tmpdir(), `lhr_img_${uid}.${ext}`);
-      const tmpOut = path3.join(os.tmpdir(), `lhr_img_${uid}.webp`);
-      const useQuality = imgType === "webp" ? Math.min(quality * 2, 80) : quality;
-      fs3.writeFileSync(tmpIn, inputBuf);
-      (0, import_child_process.execFileSync)("convert", [tmpIn, "-quality", String(useQuality), tmpOut], {
-        timeout: 15e3
-      });
-      const outputBuf = fs3.readFileSync(tmpOut);
-      if (outputBuf.length < inputBuf.length) {
-        const newB64 = outputBuf.toString("base64");
-        replacements.push({
-          original: fullMatch,
-          replacement: `data:image/webp;base64,${newB64}`
-        });
-        imagesProcessed++;
-      }
-      try {
-        fs3.unlinkSync(tmpIn);
-      } catch {
-      }
-      try {
-        fs3.unlinkSync(tmpOut);
-      } catch {
-      }
-    } catch {
-    }
-  }
-  for (const { original, replacement } of replacements) {
-    content = content.replace(original, replacement);
-  }
-  fs3.writeFileSync(filePath, content);
-  const compressedSize = Buffer.byteLength(content, "utf8");
-  return { originalSize, compressedSize, imagesProcessed };
-}
-function compressAllReports(quality) {
-  const files = fs3.readdirSync(runsDir).filter((f) => f.endsWith(".html"));
-  console.log(
-    `
-\u{1F5DC}\uFE0F  Compressing ${files.length} HTML reports (WebP quality: ${quality})...`
-  );
-  let totalOriginal = 0;
-  let totalCompressed = 0;
-  let totalImages = 0;
-  let skipped = 0;
-  for (const file of files) {
-    const filePath = path3.join(runsDir, file);
-    const content = fs3.readFileSync(filePath, "utf8");
-    const hasNonWebp = /data:image\/(jpeg|png);base64,/.test(content);
-    const hasLargeWebp = /data:image\/webp;base64,([^"\s>}]{68000,})/.test(content);
-    if (!hasNonWebp && !hasLargeWebp) {
-      skipped++;
-      continue;
-    }
-    const result = compressReportImages(filePath, quality);
-    totalOriginal += result.originalSize;
-    totalCompressed += result.compressedSize;
-    totalImages += result.imagesProcessed;
-    const saved = ((1 - result.compressedSize / result.originalSize) * 100).toFixed(0);
-    console.log(
-      `   \u2713 ${file}: ${(result.originalSize / 1024).toFixed(0)}KB \u2192 ${(result.compressedSize / 1024).toFixed(0)}KB (-${saved}%, ${result.imagesProcessed} images)`
-    );
-  }
-  const totalSaved = totalOriginal > 0 ? ((1 - totalCompressed / totalOriginal) * 100).toFixed(0) : 0;
-  console.log(`
-\u{1F4CA} Compression summary:`);
-  console.log(
-    `   Files processed: ${files.length - skipped} (${skipped} already compressed)`
-  );
-  console.log(`   Images converted: ${totalImages}`);
-  if (totalOriginal > 0) {
-    console.log(
-      `   Total: ${(totalOriginal / 1024 / 1024).toFixed(1)}MB \u2192 ${(totalCompressed / 1024 / 1024).toFixed(1)}MB (-${totalSaved}%)`
-    );
-  }
-}
-
-// src/lighthouse.ts
-var fs4 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
-var import_lighthouse = __toESM(require("lighthouse"));
-var import_desktop_config = __toESM(require("lighthouse/core/config/desktop-config.js"));
-var import_chrome_launcher = __toESM(require("chrome-launcher"));
-init_utils();
-init_config();
-function safeGet(obj, key) {
-  return obj && obj[key] != null ? obj[key] : void 0;
-}
-function stripScreenshots(lhr) {
-  const cleaned = JSON.parse(JSON.stringify(lhr));
-  delete cleaned.fullPageScreenshot;
-  if (cleaned.audits) {
-    for (const [key, audit] of Object.entries(cleaned.audits)) {
-      const a = audit;
-      if (a.details && a.details.type === "screenshot") {
-        delete cleaned.audits[key];
-      }
-    }
-  }
-  return cleaned;
-}
-function createSummary(url, urlHash, mode, timestamp, fileName, categories, metrics, runId) {
-  return {
-    id: `${urlHash}-${mode}-${timestamp}`,
-    url,
-    urlLabel: getUrlLabel(url),
-    mode,
-    timestamp,
-    fileName,
-    categories,
-    metrics,
-    ...runId != null ? { runId } : {}
-  };
-}
-var statsData = { runs: [], urls: {} };
-async function runLighthouse(url, iteration, mode, runId) {
-  const chrome = await import_chrome_launcher.default.launch({
-    chromePath: "chromium",
-    chromeFlags: ["--headless", "--no-sandbox", "--disable-gpu"]
-  });
-  const isDesktop = mode === "desktop";
-  const isWifi = mode === "mobile-wifi";
-  const isThrottled = mode === "mobile-4g";
-  const options = {
-    logLevel: "info",
-    output: "json",
-    port: chrome.port,
-    formFactor: isDesktop ? "desktop" : "mobile",
-    // screenEmulation handled by config, but we can override here if needed
-    throttlingMethod: isDesktop || isWifi ? "provided" : "simulate"
-  };
-  const configObj = isDesktop ? import_desktop_config.default : void 0;
-  const urlHash = getUrlHash(url);
-  console.log(`
-\u{1F680} [${mode.toUpperCase()}] Audit: ${url} (ID: ${urlHash})`);
-  try {
-    const runnerResult = await (0, import_lighthouse.default)(url, options, configObj);
-    if (!runnerResult) {
-      throw new Error("Lighthouse returned no result");
-    }
-    const lhr = runnerResult.lhr;
-    const categories = {
-      performance: (safeGet(lhr.categories.performance, "score") || 0) * 100,
-      accessibility: (safeGet(lhr.categories.accessibility, "score") || 0) * 100,
-      "best-practices": (safeGet(lhr.categories["best-practices"], "score") || 0) * 100,
-      seo: (safeGet(lhr.categories.seo, "score") || 0) * 100
-    };
-    const keyMetrics = {
-      fcp: safeGet(lhr.audits["first-contentful-paint"], "numericValue") || null,
-      lcp: safeGet(lhr.audits["largest-contentful-paint"], "numericValue") || null,
-      tbt: safeGet(lhr.audits["total-blocking-time"], "numericValue") || null,
-      cls: safeGet(lhr.audits["cumulative-layout-shift"], "numericValue") || null,
-      si: safeGet(lhr.audits["speed-index"], "numericValue") || null,
-      tti: safeGet(lhr.audits["interactive"], "numericValue") || null,
-      fid: safeGet(lhr.audits["max-potential-fid"], "numericValue") || null,
-      inp: safeGet(lhr.audits["interaction-to-next-paint"], "numericValue") || null,
-      fcp1: safeGet(lhr.audits["first-contentful-paint-1"], "numericValue") || null,
-      lcp1: safeGet(lhr.audits["largest-contentful-paint-1"], "numericValue") || null,
-      lcpLate: safeGet(lhr.audits["lcp-largest-contentful-paint"], "numericValue") || null,
-      fcpL: safeGet(lhr.audits["first-contentful-paint-1"], "numericValue") || null,
-      serverResponse: safeGet(lhr.audits["server-response-time"], "numericValue") || null,
-      domSize: safeGet(lhr.audits["dom-size"], "numericValue") || null,
-      mainThreadWork: safeGet(lhr.audits["mainthread-work-breakdown"], "numericValue") || null,
-      jsExecTime: safeGet(lhr.audits["runtime-external-javascript"], "numericValue") || null,
-      networkRequests: safeGet(lhr.audits["network-requests"], "numericValue") || null,
-      totalByteWeight: safeGet(lhr.audits["network-summary"], "numericValue") || null
-    };
-    const metrics = keyMetrics;
-    const timestamp = Date.now();
-    const fileName = `${urlHash}-${mode}-${timestamp}.json`;
-    const runData = {
-      id: `${urlHash}-${mode}-${timestamp}`,
-      url,
-      urlLabel: getUrlLabel(url),
-      mode,
-      iteration,
-      timestamp,
-      fileName,
-      categories,
-      metrics,
-      ...runId != null ? { runId } : {}
-    };
-    statsData.runs.push(runData);
-    if (!statsData.urls[url]) {
-      statsData.urls[url] = {
-        label: getUrlLabel(url),
-        modes: {},
-        modesRaw: {}
-      };
-    }
-    if (!statsData.urls[url].modesRaw[mode]) {
-      statsData.urls[url].modesRaw[mode] = [];
-    }
-    statsData.urls[url].modesRaw[mode].push({
-      iteration,
-      timestamp,
-      fileName,
-      categories,
-      metrics,
-      ...runId != null ? { runId } : {}
-    });
-    const reportFilePath = path4.join(runsDir, fileName);
-    const cleanedLhr = stripScreenshots(lhr);
-    fs4.writeFileSync(reportFilePath, JSON.stringify(cleanedLhr, null, 2));
-    const summary = createSummary(url, urlHash, mode, timestamp, fileName, categories, metrics, runId);
-    const summaryPath = path4.join(runsDir, `${urlHash}-${mode}-${timestamp}.summary.json`);
-    fs4.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
-    fs4.writeFileSync(dataPath, JSON.stringify(statsData, null, 2));
-    console.log(
-      `\u2705 Perf: ${categories.performance.toFixed(0)} | FCP: ${((metrics.fcp || 0) / 1e3).toFixed(2)}s | LCP: ${((metrics.lcp || 0) / 1e3).toFixed(2)}s | TBT: ${metrics.tbt || "-"}ms | Saved: ${fileName}`
-    );
-  } catch (error) {
-    console.error(`\u274C Failed to audit ${url}:`, error.message);
-  } finally {
-    await chrome.kill();
-  }
-}
-
-// src/index.ts
-init_dashboard();
-var statsData2 = { runs: [], urls: {} };
-async function main() {
-  if (args.compress) {
-    compressAllReports(args.quality);
-    return;
-  }
-  const iterations = args.runIterations !== void 0 ? args.runIterations : config.iterations;
-  const runId = Date.now();
-  console.log(
-    `
+      const iterations = args.runIterations !== void 0 ? args.runIterations : config.iterations;
+      const runId = Date.now();
+      console.log(
+        `
 \u{1F4CA} Mode: ${iterations > 0 ? `Run ${iterations} Lighthouse iteration(s)` : "Extract-only (no new tests)"}`
-  );
-  if (iterations > 0) {
-    console.log(`   Run ID: ${runId}`);
-  }
-  if (iterations > 0) {
-    for (let i = 1; i <= iterations; i++) {
-      console.log(`
+      );
+      if (iterations > 0) {
+        console.log(`   Run ID: ${runId}`);
+      }
+      if (iterations > 0) {
+        for (let i = 1; i <= iterations; i++) {
+          console.log(`
 --- \u{1F504} Round Robin: Pass ${i} of ${iterations} ---`);
-      for (const url of config.urls) {
-        for (const mode of config.emulations) {
-          await runLighthouse(url, i, mode, runId);
-          console.log(`Waiting ${config.delay}s...`);
-          await sleep(config.delay * 1e3);
+          for (const url of config.urls) {
+            for (const mode of config.emulations) {
+              await runLighthouse(url, i, mode, runId);
+              console.log(`Waiting ${config.delay}s...`);
+              await sleep(config.delay * 1e3);
+            }
+          }
         }
       }
+      const extractedData = extractDataFromReports();
+      statsData2 = extractedData;
+      generateVisualReport(statsData2);
+      console.log("\n\u{1F3C1} Complete.");
     }
+    main().catch(console.error);
   }
-  const extractedData = extractDataFromReports();
-  statsData2 = extractedData;
-  generateVisualReport(statsData2);
-  console.log("\n\u{1F3C1} Complete.");
-}
-main().catch(console.error);
+});
+export default require_index();

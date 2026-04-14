@@ -1,17 +1,28 @@
 {
   "name": "lighthouse-runner",
   "version": "1.0.0",
-  "description": "",
+  "description": "Automated Lighthouse performance auditing with visual dashboard",
   "main": "lighthouse-runner.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node build.js",
+    "build:watch": "node build.js --watch",
+    "build:minify": "node build.js --minify",
+    "start": "node lighthouse-runner.mjs",
+    "dev": "npm run build && npm run start",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -f lighthouse-runner.mjs lighthouse-runner.mjs.map"
   },
-  "keywords": [],
+  "keywords": ["lighthouse", "performance", "auditing", "dashboard"],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "chrome-launcher": "^1.2.1",
     "lighthouse": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.3.0"
   }
 }
