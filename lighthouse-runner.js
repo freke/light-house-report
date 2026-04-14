@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const ExcelJS = require("exceljs");
+const archiver = require("archiver");
 const lighthouse = require('lighthouse').default || require('lighthouse');
 const chromeLauncher = require("chrome-launcher");
 
@@ -36,7 +37,9 @@ function parseArgs(argv) {
         tester: '',
         region: '',
         excelOutput: undefined,
-        skipExcel: false
+        zipOutput: undefined,
+        skipExcel: false,
+        skipZip: false
     };
 
     for (let index = 0; index < argv.length; index++) {
@@ -74,8 +77,18 @@ function parseArgs(argv) {
             continue;
         }
 
+        if (arg === '--zip-output' && next !== undefined) {
+            parsed.zipOutput = next;
+            index += 1;
+            continue;
+        }
+
         if (arg === '--no-excel') {
             parsed.skipExcel = true;
+        }
+
+        if (arg === '--no-zip') {
+            parsed.skipZip = true;
         }
     }
 
@@ -129,6 +142,30 @@ function getExcelOutputPath() {
     }
 
     return path.join(config.baseDir, 'visual-summary.xlsx');
+}
+
+function sanitizeFileNamePart(value, fallback) {
+    if (!value || !String(value).trim()) {
+        return fallback;
+    }
+
+    return String(value)
+        .trim()
+        .replace(/[^a-zA-Z0-9_-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || fallback;
+}
+
+function getZipOutputPath() {
+    if (args.zipOutput) {
+        return path.resolve(args.zipOutput);
+    }
+
+    const datePart = sanitizeFileNamePart(args.testDate, new Date().toISOString().slice(0, 10));
+    const regionPart = sanitizeFileNamePart(args.region, 'unknown-region');
+    const testerPart = sanitizeFileNamePart(args.tester, 'unknown-tester');
+    const fileName = `reports-${datePart}-${regionPart}-${testerPart}.zip`;
+    return path.join(config.baseDir, fileName);
 }
 
 async function writeExcelReport() {
@@ -217,6 +254,51 @@ async function writeExcelReport() {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     await workbook.xlsx.writeFile(outputPath);
     console.log(`📗 Excel summary updated: ${outputPath}`);
+}
+
+async function writeReportsZip() {
+    if (args.skipZip) {
+        console.log('⏭️ Skipping zip export (--no-zip).');
+        return;
+    }
+
+    const zipOutputPath = getZipOutputPath();
+    const sourceFiles = [
+        path.join(config.baseDir, 'visual-summary.html'),
+        dataPath,
+        getExcelOutputPath()
+    ].filter(filePath => fs.existsSync(filePath));
+
+    const hasRuns = fs.existsSync(runsDir) && fs.readdirSync(runsDir).length > 0;
+    if (!sourceFiles.length && !hasRuns) {
+        console.warn('⚠️ No report artifacts available to zip.');
+        return;
+    }
+
+    fs.mkdirSync(path.dirname(zipOutputPath), { recursive: true });
+
+    await new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(zipOutputPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        output.on('close', resolve);
+        output.on('error', reject);
+        archive.on('error', reject);
+
+        archive.pipe(output);
+
+        sourceFiles.forEach(filePath => {
+            archive.file(filePath, { name: path.join('reports', path.basename(filePath)) });
+        });
+
+        if (hasRuns) {
+            archive.directory(runsDir, path.join('reports', config.reportSubDir));
+        }
+
+        archive.finalize();
+    });
+
+    console.log(`🗜️ Reports archive updated: ${zipOutputPath}`);
 }
 
 function extractDataFromReports() {
@@ -1483,6 +1565,7 @@ async function main() {
     fs.writeFileSync(dataPath, JSON.stringify(statsData, null, 2));
     generateVisualReport();
     await writeExcelReport();
+    await writeReportsZip();
     console.log('\n🏁 Complete.');
 }
 
