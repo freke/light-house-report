@@ -30,3 +30,6 @@ reports/
 *.swo
 
 urls.json
+lighthouse-runner.js
+lighthouse-runner.mjs
+*.mjs.map
