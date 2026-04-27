@@ -93,7 +93,7 @@ export async function runLighthouse(url: string, iteration: number, mode: string
       si: safeGet(lhr.audits['speed-index'], 'numericValue') ?? null,
       tti: safeGet(lhr.audits['interactive'], 'numericValue') ?? null,
       serverResponse: safeGet(lhr.audits['server-response-time'], 'numericValue') ?? null,
-      domSize: safeGet(lhr.audits['dom-size'], 'numericValue') ?? null,
+      domSize: safeGet(lhr.audits['dom-size-insight'], 'numericValue') ?? null,
       jsExecTime: safeGet(lhr.audits['bootup-time'], 'numericValue') ?? null,
       totalByteWeight: safeGet(lhr.audits['total-byte-weight'], 'numericValue') ?? null,
     };

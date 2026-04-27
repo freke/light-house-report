@@ -8,7 +8,7 @@ const buildOptions = {
   entryPoints: ['./src/index.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node24',
+  target: 'node22',
   format: 'esm',
   outfile: './lighthouse-runner.mjs',
   minify,
