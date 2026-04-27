@@ -192,14 +192,7 @@ export function generateHtml(statsData: StatsData): string {
 
   const allRunsData = statsData.runs.map((r) => ({
     urlIndex: urls.indexOf(r.url),
-    urlLabel: (() => {
-      try {
-        const u = new URL(r.url);
-        return u.host + u.pathname + u.search;
-      } catch {
-        return r.url;
-      }
-    })(),
+    urlLabel: r.urlLabel,
     score: r.categories.performance,
     mode: r.mode,
     fileName: r.fileName,

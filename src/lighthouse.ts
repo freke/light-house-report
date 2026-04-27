@@ -79,10 +79,10 @@ export async function runLighthouse(url: string, iteration: number, mode: string
     const lhr = runnerResult.lhr;
 
     const categories = {
-      performance: (safeGet(lhr.categories.performance, 'score') ?? 0) * 100,
-      accessibility: (safeGet(lhr.categories.accessibility, 'score') ?? 0) * 100,
-      'best-practices': (safeGet(lhr.categories['best-practices'], 'score') ?? 0) * 100,
-      seo: (safeGet(lhr.categories.seo, 'score') ?? 0) * 100,
+      performance: (safeGet(lhr.categories?.performance, 'score') ?? 0) * 100,
+      accessibility: (safeGet(lhr.categories?.accessibility, 'score') ?? 0) * 100,
+      'best-practices': (safeGet(lhr.categories?.['best-practices'], 'score') ?? 0) * 100,
+      seo: (safeGet(lhr.categories?.seo, 'score') ?? 0) * 100,
     };
 
     const keyMetrics = {

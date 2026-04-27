@@ -47,7 +47,7 @@ function compressReportImages(filePath: string, quality: number = 30): Compressi
   while ((match = imgRegex.exec(content)) !== null) {
     matchCounter++;
     const [fullMatch, imgType, b64Data] = match;
-    const uid = `${Date.now()}_${matchCounter}`;
+    const uid = `${Date.now()}_${process.pid}_${matchCounter}_${Math.random().toString(36).substring(2, 7)}`;
     const ext = imgType === 'jpeg' ? 'jpg' : imgType;
     const tmpIn = path.join(os.tmpdir(), `lhr_img_${uid}.${ext}`);
     const tmpOut = path.join(os.tmpdir(), `lhr_img_${uid}.webp`);
@@ -97,6 +97,10 @@ function compressReportImages(filePath: string, quality: number = 30): Compressi
 }
 
 export function compressAllReports(quality: number): void {
+  if (!fs.existsSync(runsDir)) {
+    console.log('\n📁 No reports directory found - nothing to compress.');
+    return;
+  }
   const files = fs.readdirSync(runsDir).filter((f) => f.endsWith('.html'));
   console.log(
     `\n🗜️  Compressing ${files.length} HTML reports (WebP quality: ${quality})...`,
