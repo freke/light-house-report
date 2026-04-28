@@ -11,7 +11,8 @@ export function calcSimpleAvg(arr: any[], prefix: string | null, key: string): n
   const values = arr
     .map((entry) => {
       const value = prefix ? entry[prefix]?.[key] : entry[key];
-      return value != null && !isNaN(value) ? value : null;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
     })
     .filter((value) => value !== null);
 
@@ -36,10 +37,11 @@ export function calcTimeWeightedAvg(arr: any[], prefix: string | null, key: stri
   const candidates = arr
     .map((a) => {
       const val = prefix ? (a[prefix] ? a[prefix][key] : undefined) : a[key];
+      const num = Number(val);
       const tsRaw = a.timestamp;
       const ts = Number(tsRaw);
       const validTs = Number.isFinite(ts) && ts > 0 ? ts : undefined;
-      return val != null && !isNaN(val) ? { val, ts: validTs } : null;
+      return Number.isFinite(num) ? { val: num, ts: validTs } : null;
     })
     .filter((v): v is { val: number; ts: number | undefined } => v !== null);
 

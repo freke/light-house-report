@@ -69,12 +69,11 @@ export const args = process.argv.slice(2).reduce<CliArgs>(
     if (arg === '--run') {
       const nextVal = arr[i + 1];
       if (nextVal !== undefined && !nextVal.startsWith('--')) {
-        const val = parseInt(nextVal, 10);
-        if (isNaN(val)) {
+        if (!/^\d+$/.test(nextVal)) {
           console.error(`❌ Error: Invalid value for --run: "${nextVal}". Must be a number.`);
           process.exit(1);
         }
-        acc.runIterations = val;
+        acc.runIterations = parseInt(nextVal, 10);
       } else {
         acc.runIterations = Number(process.env.LHR_ITERATIONS) || Number(fileConfig.iterations) || 3;
       }
@@ -117,8 +116,8 @@ export const args = process.argv.slice(2).reduce<CliArgs>(
 
 export const config: Config = {
   urls: fileConfig.urls,
-  iterations: Number(process.env.LHR_ITERATIONS) || fileConfig.iterations || 3,
-  delay: Number(process.env.LHR_DELAY) || fileConfig.delay || 3,
+  iterations: process.env.LHR_ITERATIONS !== undefined ? Number(process.env.LHR_ITERATIONS) : (fileConfig.iterations !== undefined ? fileConfig.iterations : 3),
+  delay: process.env.LHR_DELAY !== undefined ? Number(process.env.LHR_DELAY) : (fileConfig.delay !== undefined ? fileConfig.delay : 3),
   baseDir: process.env.LHR_BASE_DIR || fileConfig.baseDir || './reports',
   reportSubDir: process.env.LHR_REPORT_SUBDIR || fileConfig.reportSubDir || 'runs',
   emulations: validEmulations,
