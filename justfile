@@ -36,6 +36,22 @@ run iterations='':
 compress quality='30':
     node build.js && node lighthouse-runner.mjs --compress --quality {{quality}}
 
+# Generate Excel report only
+excel:
+    node build.js && node lighthouse-runner.mjs --no-zip
+
+# Generate zip archive only  
+zip:
+    node build.js && node lighthouse-runner.mjs --no-excel
+
+# Release build with metadata
+release date='' tester='' region='':
+    node build.js && node lighthouse-runner.mjs --date '{{date}}' --tester '{{tester}}' --region '{{region}}'
+
+# Full export with all options
+export-all iterations='3' date='' tester='' region='':
+    node build.js && node lighthouse-runner.mjs --run '{{iterations}}' --date '{{date}}' --tester '{{tester}}' --region '{{region}}'
+
 # Clean build artifacts
 clean:
     rm -f lighthouse-runner.mjs lighthouse-runner.mjs.map

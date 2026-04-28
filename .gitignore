@@ -29,7 +29,9 @@ reports/
 *.swp
 *.swo
 
-urls.json
+# Local configuration (contains environment-specific data)
+config.json
+
 lighthouse-runner.js
 lighthouse-runner.mjs
 *.mjs.map

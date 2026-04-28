@@ -1,0 +1,11 @@
+{
+  "urls": [
+    "https://example.com",
+    "https://example.com/about"
+  ],
+  "iterations": 3,
+  "delay": 3,
+  "baseDir": "./reports",
+  "tester": "Your Name",
+  "region": "Your Region"
+}
