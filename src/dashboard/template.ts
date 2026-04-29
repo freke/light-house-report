@@ -1,60 +1,7 @@
 import { styles } from './styles.js';
 import { clientJs } from './client.js';
 import { StatsData, IterationEntry } from '../utils.js';
-
-/** Half-life in days for exponential time-decay weighting */
-const HALF_LIFE_DAYS = 7;
-const DECAY_LAMBDA = Math.LN2 / HALF_LIFE_DAYS;
-
-/**
- * Simple average for an array of objects, extracting a nested or direct key.
- */
-export function calcAvg(arr: any[], prefix: string | undefined, key: string): number {
-  if (!arr || !arr.length) return 0;
-  const values = arr
-    .map((a) => {
-      const val = prefix ? (a[prefix] ? a[prefix][key] : undefined) : a[key];
-      return val != null && !isNaN(val) ? val : null;
-    })
-    .filter((v) => v !== null);
-  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-}
-
-/**
- * Time-weighted average: each entry's weight decays exponentially based on
- * how old it is relative to the newest entry. Half-life = 7 days.
- *
- * weight(entry) = e^(-λ × age_in_days)
- *
- * Where age_in_days = (newest_timestamp - entry_timestamp) / 86400000
- */
-function calcWeightedAvg(arr: any[], prefix: string | undefined, key: string): number {
-  if (!arr || !arr.length) return 0;
-
-  const entries = arr
-    .map((a) => {
-      const val = prefix ? (a[prefix] ? a[prefix][key] : undefined) : a[key];
-      const ts = a.timestamp || 0;
-      return val != null && !isNaN(val) ? { val, ts } : null;
-    })
-    .filter((v): v is { val: number; ts: number } => v !== null);
-
-  if (entries.length === 0) return 0;
-  if (entries.length === 1) return entries[0].val;
-
-  const newestTs = Math.max(...entries.map((e) => e.ts));
-
-  let weightedSum = 0;
-  let totalWeight = 0;
-  for (const entry of entries) {
-    const ageDays = (newestTs - entry.ts) / 86400000;
-    const weight = Math.exp(-DECAY_LAMBDA * ageDays);
-    weightedSum += entry.val * weight;
-    totalWeight += weight;
-  }
-
-  return totalWeight > 0 ? weightedSum / totalWeight : 0;
-}
+import { calcAvg } from '../calculations.js';
 
 function escapeHTML(str: string): string {
   return str
@@ -133,7 +80,7 @@ export function generateHtml(statsData: StatsData): string {
   const getWeightedMetrics = (entries: any[]) => {
     const result: Record<string, number> = {};
     for (const key of METRIC_KEYS) {
-      result[key] = calcWeightedAvg(entries, 'metrics', key);
+      result[key] = calcAvg(entries, 'metrics', key);
     }
     return result;
   };
@@ -142,8 +89,11 @@ export function generateHtml(statsData: StatsData): string {
     modeDataAvg[mode] = urls.map(u => statsData.urls[u].modes[mode] || []);
     modeDataRaw[mode] = urls.map(u => statsData.urls[u].modesRaw[mode] || []);
 
-    modePerf[mode] = modeDataAvg[mode].map(d => calcWeightedAvg(d, 'categories', 'performance'));
-    overallModePerf[mode] = calcWeightedAvg(modeDataAvg[mode].flat(), 'categories', 'performance');
+    modePerf[mode] = modeDataAvg[mode].map(d => calcAvg(d, 'categories', 'performance'));
+    const perUrlScores = modePerf[mode].filter(v => v != null && !isNaN(v));
+    overallModePerf[mode] = perUrlScores.length > 0
+      ? perUrlScores.reduce((sum, val) => sum + val, 0) / perUrlScores.length
+      : 0;
 
     modeMetrics[mode] = urls.map(url => getWeightedMetrics(statsData.urls[url].modes[mode] || []));
   }

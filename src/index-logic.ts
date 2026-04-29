@@ -4,6 +4,8 @@ import { extractDataFromReports } from './data-extract.js';
 import { compressAllReports } from './compression.js';
 import { runLighthouse } from './lighthouse.js';
 import { generateVisualReport } from './dashboard/index.js';
+import { writeExcelReport } from './excel-export.js';
+import { writeReportsZip } from './zip-export.js';
 
 export async function main(): Promise<void> {
   if (args.compress) {
@@ -54,5 +56,7 @@ export async function main(): Promise<void> {
   const statsData: StatsData = extractDataFromReports();
 
   generateVisualReport(statsData);
+  await writeExcelReport(statsData);
+  await writeReportsZip();
   console.log('\n🏁 Complete.');
 }
