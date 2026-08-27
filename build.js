@@ -4,43 +4,45 @@ const args = process.argv.slice(2);
 const watch = args.includes('--watch');
 const minify = args.includes('--minify');
 
-const buildOptions = {
-  entryPoints: ['./src/index.ts'],
+const sharedOptions = {
   bundle: true,
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  outfile: './lighthouse-runner.mjs',
   minify,
   sourcemap: true,
   external: ['lighthouse', 'chrome-launcher', 'exceljs', 'archiver', 'crypto', 'fs', 'path', 'os', 'stream', 'zlib', 'net', 'tls', 'http', 'https', 'url', 'util'],
-  banner: {
-    js: '#!/usr/bin/env node',
-  },
-  plugins: [{
-    name: 'rebuild-notify',
-    setup(build) {
-      build.onEnd(result => {
-        if (result.errors.length > 0) {
-          console.error('Build errors:', result.errors);
-        } else {
-          console.log('Built successfully!');
-        }
-      });
-    },
-  }],
 };
+
+const builds = [
+  {
+    ...sharedOptions,
+    entryPoints: ['./src/index.ts'],
+    outfile: './lighthouse-runner.mjs',
+    banner: {
+      js: '#!/usr/bin/env node',
+    },
+  },
+  {
+    ...sharedOptions,
+    entryPoints: ['./src/audit-worker.ts'],
+    outfile: './lighthouse-audit-worker.mjs',
+  },
+];
 
 async function build() {
   try {
     if (watch) {
-      const ctx = await esbuild.context(buildOptions);
-      await ctx.watch();
+      const contexts = await Promise.all(builds.map(opts => esbuild.context(opts)));
+      await Promise.all(contexts.map(ctx => ctx.watch()));
       console.log('Watching for changes...');
     } else {
-      const result = await esbuild.build(buildOptions);
-      if (result.errors.length > 0) {
+      const results = await Promise.all(builds.map(opts => esbuild.build(opts)));
+      const hasErrors = results.some(r => r.errors.length > 0);
+      if (hasErrors) {
         process.exit(1);
+      } else {
+        console.log('Built successfully!');
       }
     }
   } catch (err) {

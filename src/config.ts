@@ -18,6 +18,7 @@ export interface Config {
   quality: number;
   skipExcel: boolean;
   skipZip: boolean;
+  auditTimeoutMs: number;
 }
 
 export interface CliArgs {
@@ -127,6 +128,7 @@ export const config: Config = {
   quality: fileConfig.quality || 30,
   skipExcel: fileConfig.skipExcel || false,
   skipZip: fileConfig.skipZip || false,
+  auditTimeoutMs: process.env.LHR_AUDIT_TIMEOUT_MS !== undefined ? Number(process.env.LHR_AUDIT_TIMEOUT_MS) : (fileConfig.auditTimeoutMs !== undefined ? fileConfig.auditTimeoutMs : 300_000),
 };
 
 
