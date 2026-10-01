@@ -3,23 +3,6 @@ const HALF_LIFE_DAYS = 7;
 const DECAY_LAMBDA = Math.LN2 / HALF_LIFE_DAYS;
 
 /**
- * Simple average for an array of values, ignoring nulls.
- */
-export function calcSimpleAvg(arr: any[], prefix: string | null, key: string): number {
-  if (!arr || !arr.length) return 0;
-
-  const values = arr
-    .map((entry) => {
-      const value = prefix ? entry[prefix]?.[key] : entry[key];
-      const num = Number(value);
-      return Number.isFinite(num) ? num : null;
-    })
-    .filter((value) => value !== null);
-
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-}
-
-/**
  * Time-weighted average: each entry's weight decays exponentially based on
  * how old it is relative to the newest entry. Half-life = 7 days.
  *

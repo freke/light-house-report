@@ -4,20 +4,21 @@ import * as fs from 'fs';
 import { config, args } from './config.js';
 import { StatsData } from './utils.js';
 import { calcAvg } from './calculations.js';
+import { formatUtcDate } from './dates.js';
 
 function buildExcelRows(statsData: StatsData): any[] {
-  // Compute test date: use provided date, or most recent run date, or today
+  // Compute test date: use provided date, or most recent run date, or today.
+  // UTC, matching the day bucketing used everywhere else.
   const testDate = args.testDate || (() => {
     const timestamps = statsData.runs
       .map(r => r.timestamp)
       .filter((t): t is number => typeof t === 'number' && t > 0);
-    
+
     if (timestamps.length > 0) {
-      const mostRecent = Math.max(...timestamps);
-      return new Date(mostRecent).toISOString().split('T')[0];
+      return formatUtcDate(Math.max(...timestamps));
     }
-    
-    return new Date().toISOString().split('T')[0];
+
+    return formatUtcDate(Date.now());
   })();
 
   return Object.keys(statsData.urls).flatMap((url) => {
@@ -37,6 +38,10 @@ function buildExcelRows(statsData: StatsData): any[] {
       const clsVal = calcAvg(entries, 'metrics', 'cls');
       const siVal = calcAvg(entries, 'metrics', 'si') / 1000;
       const ttiVal = calcAvg(entries, 'metrics', 'tti') / 1000;
+      const serverVal = calcAvg(entries, 'metrics', 'serverResponse');
+      const jsVal = calcAvg(entries, 'metrics', 'jsExecTime');
+      const domVal = calcAvg(entries, 'metrics', 'domSize');
+      const weightVal = calcAvg(entries, 'metrics', 'totalByteWeight') / 1048576;
 
       return [
         {
@@ -45,19 +50,27 @@ function buildExcelRows(statsData: StatsData): any[] {
           testDate,
           tester: config.tester || '',
           region: config.region || '',
+          performance: calcAvg(entries, 'categories', 'performance'),
+          accessibility: calcAvg(entries, 'categories', 'accessibility'),
+          bestPractices: calcAvg(entries, 'categories', 'best-practices'),
+          seo: calcAvg(entries, 'categories', 'seo'),
           fcp: fcpVal,
           lcp: lcpVal,
           tbt: tbtVal,
           cls: clsVal,
           si: siVal,
           tti: ttiVal,
+          serverResponse: serverVal,
+          jsExecTime: jsVal,
+          domSize: domVal,
+          totalByteWeight: weightVal,
         },
       ];
     });
   });
 }
 
-function getExcelOutputPath(): string {
+export function getExcelOutputPath(): string {
   if (args.excelOutput) {
     return path.resolve(args.excelOutput);
   }
@@ -91,12 +104,20 @@ export async function writeExcelReport(statsData: StatsData): Promise<void> {
     'Test Date',
     'Tester',
     'Region',
+    'Performance',
+    'Accessibility',
+    'Best Practices',
+    'SEO',
     'FCP (s)',
     'LCP (s)',
     'TBT (ms)',
     'CLS',
     'SI (s)',
     'TTI (s)',
+    'Server Response (ms)',
+    'JS Exec (ms)',
+    'DOM Elements',
+    'Page Weight (MB)',
   ];
 
   // Add header row
@@ -116,12 +137,20 @@ export async function writeExcelReport(statsData: StatsData): Promise<void> {
       row.testDate,
       row.tester,
       row.region,
+      row.performance.toFixed(1),
+      row.accessibility.toFixed(1),
+      row.bestPractices.toFixed(1),
+      row.seo.toFixed(1),
       row.fcp.toFixed(2),
       row.lcp.toFixed(2),
       Math.round(row.tbt),
       row.cls.toFixed(3),
       row.si.toFixed(2),
       row.tti.toFixed(2),
+      Math.round(row.serverResponse),
+      Math.round(row.jsExecTime),
+      Math.round(row.domSize),
+      row.totalByteWeight.toFixed(2),
     ]);
   });
 

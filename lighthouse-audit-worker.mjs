@@ -1,6 +1,6 @@
 // src/audit-worker.ts
-import * as fs from "fs";
-import * as path from "path";
+import * as fs2 from "fs";
+import * as path2 from "path";
 import lighthouse from "lighthouse";
 import desktopConfig from "lighthouse/core/config/desktop-config.js";
 import * as chromeLauncher from "chrome-launcher";
@@ -19,21 +19,69 @@ function getUrlLabel(url) {
   }
 }
 
-// src/audit-worker.ts
+// src/lhr-slim.ts
+import * as fs from "fs";
+import * as path from "path";
+var DROPPED_TOP_LEVEL_FIELDS = /* @__PURE__ */ new Set(["i18n", "fullPageScreenshot"]);
+var DROPPED_AUDIT_FIELDS = /* @__PURE__ */ new Set(["description", "explanation", "warnings", "id", "details"]);
+var DROPPED_CATEGORY_FIELDS = /* @__PURE__ */ new Set(["description", "manualDescription"]);
+function slimLhr(lhr) {
+  const slim = {};
+  for (const [key, value] of Object.entries(lhr ?? {})) {
+    if (DROPPED_TOP_LEVEL_FIELDS.has(key)) continue;
+    slim[key] = value;
+  }
+  if (slim.audits && typeof slim.audits === "object") {
+    const audits = {};
+    for (const [key, audit] of Object.entries(slim.audits)) {
+      const stripped = {};
+      for (const [field, value] of Object.entries(audit ?? {})) {
+        if (DROPPED_AUDIT_FIELDS.has(field)) continue;
+        stripped[field] = value;
+      }
+      audits[key] = stripped;
+    }
+    slim.audits = audits;
+  }
+  for (const key of ["categories", "categoryGroups"]) {
+    const groups = slim[key];
+    if (!groups || typeof groups !== "object") continue;
+    for (const [id, group] of Object.entries(groups)) {
+      if (!group || typeof group !== "object") continue;
+      const stripped = {};
+      for (const [field, value] of Object.entries(group)) {
+        if (DROPPED_CATEGORY_FIELDS.has(field)) continue;
+        stripped[field] = value;
+      }
+      groups[id] = stripped;
+    }
+  }
+  return slim;
+}
 function safeGet(obj, key) {
   return obj && obj[key] != null ? obj[key] : void 0;
 }
-function stripScreenshots(lhr) {
-  delete lhr.fullPageScreenshot;
-  if (lhr.audits) {
-    for (const [key, audit] of Object.entries(lhr.audits)) {
-      const a = audit;
-      if (a.details && a.details.type === "screenshot") {
-        delete lhr.audits[key];
-      }
-    }
-  }
-  return lhr;
+function extractCategories(lhr) {
+  return {
+    performance: (safeGet(lhr.categories?.performance, "score") ?? 0) * 100,
+    accessibility: (safeGet(lhr.categories?.accessibility, "score") ?? 0) * 100,
+    "best-practices": (safeGet(lhr.categories?.["best-practices"], "score") ?? 0) * 100,
+    seo: (safeGet(lhr.categories?.seo, "score") ?? 0) * 100
+  };
+}
+function extractMetrics(lhr) {
+  return {
+    fcp: safeGet(lhr.audits["first-contentful-paint"], "numericValue") ?? null,
+    lcp: safeGet(lhr.audits["largest-contentful-paint"], "numericValue") ?? null,
+    tbt: safeGet(lhr.audits["total-blocking-time"], "numericValue") ?? null,
+    cls: safeGet(lhr.audits["cumulative-layout-shift"], "numericValue") ?? null,
+    si: safeGet(lhr.audits["speed-index"], "numericValue") ?? null,
+    tti: safeGet(lhr.audits["interactive"], "numericValue") ?? null,
+    serverResponse: safeGet(lhr.audits["server-response-time"], "numericValue") ?? null,
+    domSize: safeGet(lhr.audits["dom-size-insight"], "numericValue") ?? null,
+    jsExecTime: safeGet(lhr.audits["bootup-time"], "numericValue") ?? null,
+    totalByteWeight: safeGet(lhr.audits["total-byte-weight"], "numericValue") ?? null
+  };
 }
 function createSummary(url, urlHash, mode, timestamp, fileName, categories, metrics, iteration, runId) {
   return {
@@ -49,6 +97,8 @@ function createSummary(url, urlHash, mode, timestamp, fileName, categories, metr
     ...runId != null ? { runId } : {}
   };
 }
+
+// src/audit-worker.ts
 async function runAudit(params2) {
   const { url, iteration, mode, runId, runsDir, chromePath } = params2;
   const chrome = await chromeLauncher.launch({
@@ -83,32 +133,16 @@ async function runAudit(params2) {
       throw new Error("Lighthouse returned no result");
     }
     const lhr = runnerResult.lhr;
-    const categories = {
-      performance: (safeGet(lhr.categories?.performance, "score") ?? 0) * 100,
-      accessibility: (safeGet(lhr.categories?.accessibility, "score") ?? 0) * 100,
-      "best-practices": (safeGet(lhr.categories?.["best-practices"], "score") ?? 0) * 100,
-      seo: (safeGet(lhr.categories?.seo, "score") ?? 0) * 100
-    };
-    const metrics = {
-      fcp: safeGet(lhr.audits["first-contentful-paint"], "numericValue") ?? null,
-      lcp: safeGet(lhr.audits["largest-contentful-paint"], "numericValue") ?? null,
-      tbt: safeGet(lhr.audits["total-blocking-time"], "numericValue") ?? null,
-      cls: safeGet(lhr.audits["cumulative-layout-shift"], "numericValue") ?? null,
-      si: safeGet(lhr.audits["speed-index"], "numericValue") ?? null,
-      tti: safeGet(lhr.audits["interactive"], "numericValue") ?? null,
-      serverResponse: safeGet(lhr.audits["server-response-time"], "numericValue") ?? null,
-      domSize: safeGet(lhr.audits["dom-size-insight"], "numericValue") ?? null,
-      jsExecTime: safeGet(lhr.audits["bootup-time"], "numericValue") ?? null,
-      totalByteWeight: safeGet(lhr.audits["total-byte-weight"], "numericValue") ?? null
-    };
+    const categories = extractCategories(lhr);
+    const metrics = extractMetrics(lhr);
     const timestamp = Date.now();
     const fileName = `${urlHash}-${mode}-${timestamp}-iter${iteration}.json`;
-    const reportFilePath = path.join(runsDir, fileName);
-    const cleanedLhr = stripScreenshots(lhr);
-    fs.writeFileSync(reportFilePath, JSON.stringify(cleanedLhr, null, 2));
+    const reportFilePath = path2.join(runsDir, fileName);
+    const cleanedLhr = slimLhr(lhr);
+    fs2.writeFileSync(reportFilePath, JSON.stringify(cleanedLhr, null, 2));
     const summary = createSummary(url, urlHash, mode, timestamp, fileName, categories, metrics, iteration, runId);
-    const summaryPath = path.join(runsDir, `${urlHash}-${mode}-${timestamp}-iter${iteration}.summary.json`);
-    fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+    const summaryPath = path2.join(runsDir, `${urlHash}-${mode}-${timestamp}-iter${iteration}.summary.json`);
+    fs2.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
     console.log(
       `\u2705 Perf: ${categories.performance.toFixed(0)} | FCP: ${((metrics.fcp ?? 0) / 1e3).toFixed(2)}s | LCP: ${((metrics.lcp ?? 0) / 1e3).toFixed(2)}s | TBT: ${metrics.tbt ?? "-"}ms | Saved: ${fileName}`
     );

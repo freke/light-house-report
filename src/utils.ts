@@ -41,7 +41,8 @@ export interface IterationEntry {
   categories: Record<string, number | null>;
   metrics: Record<string, number | null>;
   runId?: number;
-  iterationCount?: number;
+  /** Number of runs averaged into this entry. Entries are one per UTC test day. */
+  sampleCount?: number;
 }
 
 export interface UrlData {

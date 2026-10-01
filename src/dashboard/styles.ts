@@ -25,6 +25,9 @@ export const styles = String.raw`:root {
   --accent: hsl(210, 100%, 45%);
   --accent-glow: hsla(210, 100%, 45%, 0.15);
   --chart-bg: hsla(210, 100%, 45%, 0.05);
+  --success: hsl(150, 65%, 32%);
+  --warning: hsl(35, 85%, 40%);
+  --danger: hsl(0, 70%, 45%);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -271,7 +274,7 @@ section {
   border: 1px solid var(--border);
   border-radius: 28px;
   padding: 2rem;
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: 0 10px 30px rgba(0,0,0,0.1);
 }
 
@@ -618,4 +621,149 @@ tr:hover td {
 
 .current-label {
   color: var(--text-dim);
-}`;
+}
+
+/* ---------- direction of travel ---------- */
+
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 800;
+  color: var(--text-dim);
+}
+
+.control select {
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.control-note {
+  flex: 1 1 22rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.series-chip {
+  background: var(--bg-surface);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.series-chip:hover {
+  color: var(--text-main);
+  border-color: var(--text-dim);
+}
+
+.series-chip.active {
+  background: var(--text-main);
+  color: var(--bg-deep);
+  border-color: var(--text-main);
+}
+
+.chip-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-right: 0.75rem;
+}
+
+.chip-group-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 800;
+  color: var(--text-dim);
+  margin-right: 0.25rem;
+}
+
+.direction-table td.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.direction-table td.delta {
+  font-weight: 800;
+}
+
+.direction-table tr.verdict-better td.delta { color: var(--success); }
+.direction-table tr.verdict-worse td.delta { color: var(--danger); }
+.direction-table tr.verdict-flat td.delta { color: var(--text-dim); }
+.direction-table tr.verdict-insufficient td { opacity: 0.55; }
+
+.verdict-cell { white-space: nowrap; }
+
+.verdict-pill {
+  display: inline-block;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border: 1px solid var(--border);
+}
+
+.verdict-pill.verdict-better { color: var(--success); border-color: var(--success); }
+.verdict-pill.verdict-worse { color: var(--danger); border-color: var(--danger); }
+.verdict-pill.verdict-flat { color: var(--text-dim); }
+.verdict-pill.verdict-insufficient { color: var(--text-dim); opacity: 0.7; }
+
+.spark-cell { width: 148px; }
+
+svg.spark {
+  width: 132px;
+  height: 34px;
+  display: block;
+  overflow: visible;
+}
+
+svg.spark polyline {
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+svg.spark circle {
+  stroke: none;
+}
+
+svg.spark-verdict-better polyline { stroke: var(--success); }
+svg.spark-verdict-better circle { fill: var(--success); }
+svg.spark-verdict-worse polyline { stroke: var(--danger); }
+svg.spark-verdict-worse circle { fill: var(--danger); }
+svg.spark-verdict-flat polyline { stroke: var(--text-dim); }
+svg.spark-verdict-flat circle { fill: var(--text-dim); }
+svg.spark-verdict-insufficient polyline { stroke: var(--text-dim); opacity: 0.5; }
+svg.spark-verdict-insufficient circle { fill: var(--text-dim); opacity: 0.5; }
+`;

@@ -32,9 +32,9 @@ dev:
 run iterations='':
     node build.js && node lighthouse-runner.mjs --run {{iterations}}
 
-# Compress existing reports
-compress quality='30':
-    node build.js && node lighthouse-runner.mjs --compress --quality {{quality}}
+# Slim stored reports (drop images, prose and row data) and rebuild legacy summaries
+slim:
+    node build.js && node lighthouse-runner.mjs --slim-existing
 
 # Generate Excel report only
 excel:

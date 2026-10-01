@@ -3,39 +3,8 @@ import * as path from 'path';
 import lighthouse from 'lighthouse';
 import desktopConfig from 'lighthouse/core/config/desktop-config.js';
 import * as chromeLauncher from 'chrome-launcher';
-import { getUrlHash, getUrlLabel } from './utils.js';
-
-function safeGet(obj: any, key: string): any {
-  return obj && obj[key] != null ? obj[key] : undefined;
-}
-
-function stripScreenshots(lhr: any): any {
-  delete lhr.fullPageScreenshot;
-  if (lhr.audits) {
-    for (const [key, audit] of Object.entries(lhr.audits)) {
-      const a = audit as any;
-      if (a.details && a.details.type === 'screenshot') {
-        delete lhr.audits[key];
-      }
-    }
-  }
-  return lhr;
-}
-
-function createSummary(url: string, urlHash: string, mode: string, timestamp: number, fileName: string, categories: any, metrics: any, iteration: number, runId?: number) {
-  return {
-    id: `${urlHash}-${mode}-${timestamp}`,
-    url,
-    urlLabel: getUrlLabel(url),
-    mode,
-    iteration,
-    timestamp,
-    fileName,
-    categories,
-    metrics,
-    ...(runId != null ? { runId } : {}),
-  };
-}
+import { getUrlHash } from './utils.js';
+import { slimLhr, extractCategories, extractMetrics, createSummary } from './lhr-slim.js';
 
 interface AuditParams {
   url: string;
@@ -86,31 +55,15 @@ async function runAudit(params: AuditParams): Promise<void> {
     }
     const lhr = runnerResult.lhr;
 
-    const categories = {
-      performance: (safeGet(lhr.categories?.performance, 'score') ?? 0) * 100,
-      accessibility: (safeGet(lhr.categories?.accessibility, 'score') ?? 0) * 100,
-      'best-practices': (safeGet(lhr.categories?.['best-practices'], 'score') ?? 0) * 100,
-      seo: (safeGet(lhr.categories?.seo, 'score') ?? 0) * 100,
-    };
+    const categories = extractCategories(lhr);
 
-    const metrics = {
-      fcp: safeGet(lhr.audits['first-contentful-paint'], 'numericValue') ?? null,
-      lcp: safeGet(lhr.audits['largest-contentful-paint'], 'numericValue') ?? null,
-      tbt: safeGet(lhr.audits['total-blocking-time'], 'numericValue') ?? null,
-      cls: safeGet(lhr.audits['cumulative-layout-shift'], 'numericValue') ?? null,
-      si: safeGet(lhr.audits['speed-index'], 'numericValue') ?? null,
-      tti: safeGet(lhr.audits['interactive'], 'numericValue') ?? null,
-      serverResponse: safeGet(lhr.audits['server-response-time'], 'numericValue') ?? null,
-      domSize: safeGet(lhr.audits['dom-size-insight'], 'numericValue') ?? null,
-      jsExecTime: safeGet(lhr.audits['bootup-time'], 'numericValue') ?? null,
-      totalByteWeight: safeGet(lhr.audits['total-byte-weight'], 'numericValue') ?? null,
-    };
+    const metrics = extractMetrics(lhr);
 
     const timestamp = Date.now();
     const fileName = `${urlHash}-${mode}-${timestamp}-iter${iteration}.json`;
 
     const reportFilePath = path.join(runsDir, fileName);
-    const cleanedLhr = stripScreenshots(lhr);
+    const cleanedLhr = slimLhr(lhr);
     fs.writeFileSync(reportFilePath, JSON.stringify(cleanedLhr, null, 2));
 
     const summary = createSummary(url, urlHash, mode, timestamp, fileName, categories, metrics, iteration, runId);

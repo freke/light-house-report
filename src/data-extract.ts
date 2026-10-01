@@ -2,9 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getUrlHash, getUrlLabel, RunData, StatsData, IterationEntry } from './utils.js';
 import { runsDir } from './config.js';
-
-/** Gap threshold for grouping legacy files without runId (30 minutes) */
-const LEGACY_GROUP_GAP_MS = 30 * 60 * 1000;
+import { utcDayKey } from './dates.js';
 
 /**
  * Average an array of numeric values, ignoring nulls.
@@ -16,12 +14,13 @@ function avgValues(values: (number | null)[]): number | null {
 }
 
 /**
- * Average a group of iteration entries into a single entry.
- * Uses the last timestamp as the representative timestamp.
+ * Average a group of runs recorded on the same UTC day into a single entry.
+ * The latest timestamp that day is the representative timestamp, so decay
+ * weighting still favours the most recent day.
  */
 function averageGroup(group: IterationEntry[]): IterationEntry {
   if (group.length === 1) {
-    return { ...group[0], iterationCount: 1 };
+    return { ...group[0], sampleCount: 1 };
   }
 
   // Collect all category keys and metric keys
@@ -43,7 +42,7 @@ function averageGroup(group: IterationEntry[]): IterationEntry {
     avgMetrics[key] = avgValues(group.map((e) => e.metrics[key]));
   }
 
-  // Use the last timestamp (end of run)
+  // Use the last timestamp (end of the day's runs)
   const lastEntry = group[group.length - 1];
 
   return {
@@ -53,60 +52,35 @@ function averageGroup(group: IterationEntry[]): IterationEntry {
     categories: avgCategories,
     metrics: avgMetrics,
     runId: group[0].runId,
-    iterationCount: group.length,
+    sampleCount: group.length,
   };
 }
 
 /**
- * Group iteration entries by runId. For legacy entries without runId,
- * fall back to temporal proximity grouping.
+ * Collapse runs into one data point per UTC test day.
+ *
+ * Grouping used to be by `runId`, with a 30-minute proximity fallback for
+ * legacy files. Day bucketing replaces both: it is the unit a reader thinks
+ * in, it works identically for files with and without a `runId`, and it stops
+ * a day with many runs from counting many times in the decay-weighted average.
  */
 function groupAndAverage(entries: IterationEntry[]): IterationEntry[] {
   if (entries.length === 0) return [];
 
-  // Separate entries with and without runId
-  const withRunId: IterationEntry[] = [];
-  const withoutRunId: IterationEntry[] = [];
-
+  const byDay = new Map<string, IterationEntry[]>();
   for (const entry of entries) {
-    if (entry.runId != null) {
-      withRunId.push(entry);
-    } else {
-      withoutRunId.push(entry);
-    }
+    const day = utcDayKey(entry.timestamp);
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day)!.push(entry);
   }
 
   const result: IterationEntry[] = [];
-
-  // Group entries that have runId
-  const runIdGroups = new Map<number, IterationEntry[]>();
-  for (const entry of withRunId) {
-    const key = entry.runId!;
-    if (!runIdGroups.has(key)) runIdGroups.set(key, []);
-    runIdGroups.get(key)!.push(entry);
-  }
-  for (const group of runIdGroups.values()) {
+  for (const group of byDay.values()) {
+    // Order within the day so the representative timestamp really is the last.
+    group.sort((a, b) => a.timestamp - b.timestamp);
     result.push(averageGroup(group));
   }
 
-  // Group legacy entries by temporal proximity
-  if (withoutRunId.length > 0) {
-    withoutRunId.sort((a, b) => a.timestamp - b.timestamp);
-    let currentGroup: IterationEntry[] = [withoutRunId[0]];
-
-    for (let i = 1; i < withoutRunId.length; i++) {
-      const gap = withoutRunId[i].timestamp - withoutRunId[i - 1].timestamp;
-      if (gap > LEGACY_GROUP_GAP_MS) {
-        result.push(averageGroup(currentGroup));
-        currentGroup = [withoutRunId[i]];
-      } else {
-        currentGroup.push(withoutRunId[i]);
-      }
-    }
-    result.push(averageGroup(currentGroup));
-  }
-
-  // Sort by timestamp
   result.sort((a, b) => a.timestamp - b.timestamp);
   return result;
 }
@@ -121,7 +95,6 @@ export function extractDataFromReports(): StatsData {
   }
 
   const files = fs.readdirSync(runsDir).filter((f) => f.endsWith('.summary.json'));
-  files.sort(); // Ensure consistent ordering for averageGroup
   console.log(`   Found ${files.length} summary files.`);
 
   for (const file of files) {
@@ -207,7 +180,8 @@ export function extractDataFromReports(): StatsData {
     }
   }
 
-  // Group and average iterations into per-run data points
+  // Collapse runs into one data point per UTC test day. modesRaw and runs stay
+  // per-run so the box plot and the raw registry keep run-level granularity.
   for (const url of Object.keys(extracted.urls)) {
     const urlData = extracted.urls[url];
     for (const m of Object.keys(urlData.modesRaw)) {
@@ -221,6 +195,6 @@ export function extractDataFromReports(): StatsData {
   const totalAveraged = Object.values(extracted.urls).reduce(
     (sum, u) => sum + Object.values(u.modes).reduce((s, m) => s + m.length, 0), 0
   );
-  console.log(`   ✓ Extracted ${totalRaw} iterations → ${totalAveraged} averaged run data points.`);
+  console.log(`   ✓ Extracted ${totalRaw} runs → ${totalAveraged} daily data points.`);
   return extracted;
 }
