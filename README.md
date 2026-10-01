@@ -71,7 +71,6 @@ These options can be added to `config.json` for advanced control:
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `quality` | Compression quality (1-100) | 30 |
 | `chromePath` | Custom Chrome/Chromium executable path | System default |
 | `reportSubDir` | Report subdirectory | `"runs"` |
 | `emulations` | Emulation modes to run | All 3 modes |
@@ -87,7 +86,6 @@ These options can be added to `config.json` for advanced control:
   "baseDir": "./reports",
   "tester": "Your Name",
   "region": "us-east",
-  "quality": 30,
   "chromePath": "/usr/bin/chromium",
   "reportSubDir": "runs",
   "emulations": ["mobile-4g", "desktop"],
@@ -134,8 +132,8 @@ node lighthouse-runner.mjs --no-zip
 # Specify output paths
 node lighthouse-runner.mjs --excel-output /path/to/report.xlsx --zip-output /path/to/archive.zip
 
-# Compress existing reports
-node lighthouse-runner.mjs --compress --quality 80
+# Slim stored reports in place (see "Saved Report Contents")
+node lighthouse-runner.mjs --slim-existing
 ```
 
 ---
@@ -152,8 +150,7 @@ node lighthouse-runner.mjs --compress --quality 80
 | `--zip-output <path>` | Zip archive path | Auto-generated |
 | `--no-excel` | Skip Excel export | false |
 | `--no-zip` | Skip zip creation | false |
-| `--compress` | Compress existing reports | false |
-| `--quality <1-100>` | Compression quality | 30 |
+| `--slim-existing` | Slim stored reports in place and rebuild legacy summaries, then exit | false |
 
 ---
 
@@ -204,6 +201,41 @@ All reports (Excel and HTML dashboard) use the **same time-weighted averaging** 
    ```
 5. **Test Date**: Set via `--date` flag, or defaults to the most recent run date in the data
 
+### Day Aggregation
+
+Every condensed data point represents **one UTC test day**, averaged across all runs recorded
+that day. The tool is often invoked several times a day; treating those as separate observations
+overstates how much data exists and would let a busy day dominate the average.
+
+- `modes` (the condensed series) is per day. This is what drives the dashboard tables, the
+  radar charts, the trend chart and the Excel.
+- `modesRaw` and the raw run registry stay **per run**, so the Performance Envelope box plot
+  still shows how repeatable a single measurement is, and the Discrete Run Mapping scatter still
+  plots individual runs.
+- Day buckets are **UTC** throughout: day bucketing, the Excel test date, the zip file name and
+  the dashboard's own date labels. Roughly an eighth of the stored runs happen between 01:00 and
+  08:00 local time, so mixing local and UTC would place the same run on two different days.
+
+### Direction of Travel
+
+The dashboard's primary answer to "are the pages getting better or worse". For each URL and mode
+it compares the most recent window against the window before it and only calls a change when it
+exceeds the measured day-to-day noise for that metric:
+
+```text
+noiseThreshold = 90th percentile of |day-over-day change| in the stored data
+verdict: delta > +threshold → better, delta < -threshold → worse, otherwise flat
+```
+
+Those thresholds live in `src/dashboard/series.ts` next to each metric's unit and formatting, so
+the rule is auditable in one place. Series whose measured noise is zero — the category scores
+barely move — are floored at 1 point. Rows where either window has no runs are reported as
+`insufficient` rather than showing a partial comparison, and rows are sorted worst first.
+
+Window means are plain means rather than the 7-day decay: a decay would let the newest test day
+dominate a 30-day window, and the two windows have to be comparable for their difference to mean
+anything. The decay-weighted figure is still reported separately as the *current* score.
+
 ### Emulation Modes
 
 | Mode | Description | Throttling |
@@ -211,6 +243,49 @@ All reports (Excel and HTML dashboard) use the **same time-weighted averaging** 
 | `mobile-4g` | Mobile device simulation | CPU + network throttling (simulated 4G) |
 | `mobile-wifi` | Mobile device simulation | CPU throttling only (unthrottled network) |
 | `desktop` | Desktop simulation | No throttling (provided conditions) |
+
+---
+
+## Saved Report Contents
+
+Each audit writes two files into `reportSubDir`:
+
+| File | Purpose | Size |
+|------|---------|------|
+| `<hash>-<mode>-<timestamp>-iter<N>.json` | Full Lighthouse report | ~100 KB |
+| `<hash>-<mode>-<timestamp>-iter<N>.summary.json` | The ten metrics and four category scores | ~800 B |
+
+**The dashboard, Excel and ZIP are built entirely from the `.summary.json` files.** The full
+Lighthouse JSON is kept so that new metrics can be added or existing ones recomputed later
+without re-running an audit, and it retains every scalar value that makes that possible:
+
+- **Kept**: every audit's `score`, `numericValue`, `numericUnit`, `scoreDisplayMode`,
+  `displayValue`, `metricSavings`, `scoringOptions` and `title`, plus the `timing` entries
+  (per-step tool timings), `categories`, `categoryGroups`, `stackPacks`, `configSettings`,
+  `entities`, `environment`, `runWarnings` and `lighthouseVersion`.
+- **Dropped**: images (`screenshot-thumbnails` filmstrip and `fullPageScreenshot`), prose
+  (the `i18n` message catalog and each audit's `description`, `explanation` and `warnings`),
+  the redundant per-audit `id`, and all `details` row tables.
+
+Dropping `details` is what makes the file small. Every metric Lighthouse reports is an audit
+scalar, so all ten metrics remain recalculable; what is lost is the ability to recompute a
+metric from raw request or DOM rows.
+
+The ten stored metrics are `fcp`, `lcp`, `tbt`, `cls`, `si`, `tti`, `serverResponse`,
+`jsExecTime`, `domSize` and `totalByteWeight`. `serverResponse`, `jsExecTime`, `domSize` and
+`totalByteWeight` have no published thresholds, so the dashboard shows them ungraded.
+
+`src/dashboard/series.ts` is the single registry of what can be charted, compared and trended.
+Adding a metric means adding one entry there: unit, formatting, grading thresholds and its
+measured noise floor. Day bucketing, the Excel test date, the zip name and the dashboard's date
+labels all resolve through `src/dates.ts`, so a run can never appear under two different days.
+
+The same rules are applied to Lighthouse HTML reports in `html-backup/`, by rewriting the LHR
+embedded in `window.__LIGHTHOSE_JSON__`. The report stays valid and viewable.
+
+Summaries are retained indefinitely; no run is ever deleted. To convert reports written by an
+older version, run `just slim` (or `--slim-existing`), which slims stored reports and rebuilds
+`.summary.json` files for legacy HTML reports that never had one.
 
 ---
 
@@ -224,6 +299,7 @@ just watch        # Watch mode
 just dev          # Build and run
 just excel        # Generate Excel only
 just zip          # Generate zip only
+just slim         # Slim stored reports in place
 just release      # Release with metadata
 just check        # TypeScript check
 just clean        # Clean build artifacts

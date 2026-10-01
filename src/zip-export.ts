@@ -2,6 +2,8 @@ import archiver from 'archiver';
 import * as fs from 'fs';
 import * as path from 'path';
 import { config, args, runsDir } from './config.js';
+import { getExcelOutputPath } from './excel-export.js';
+import { formatUtcDate } from './dates.js';
 
 function sanitizeFileNamePart(value: string, fallback: string): string {
   if (!value || !String(value).trim()) {
@@ -20,23 +22,11 @@ function getZipOutputPath(): string {
     return path.resolve(args.zipOutput);
   }
 
-  const datePart = sanitizeFileNamePart(args.testDate, new Date().toISOString().slice(0, 10));
+  const datePart = sanitizeFileNamePart(args.testDate, formatUtcDate(Date.now()));
   const regionPart = sanitizeFileNamePart(config.region, 'unknown-region');
   const testerPart = sanitizeFileNamePart(config.tester, 'unknown-tester');
   const fileName = `reports-${datePart}-${regionPart}-${testerPart}.zip`;
   return path.join(config.baseDir, fileName);
-}
-
-function getExcelOutputPath(): string {
-  if (args.excelOutput) {
-    return path.resolve(args.excelOutput);
-  }
-
-  return path.join(config.baseDir, 'visual-summary.xlsx');
-}
-
-function getDataPath(): string {
-  return path.join(config.baseDir, 'persistent_stats.json');
 }
 
 export async function writeReportsZip(): Promise<void> {
@@ -48,7 +38,6 @@ export async function writeReportsZip(): Promise<void> {
   const zipOutputPath = getZipOutputPath();
   const sourceFiles = [
     path.join(config.baseDir, 'visual-summary.html'),
-    getDataPath(),
     ...(!config.skipExcel && !args.skipExcel ? [getExcelOutputPath()] : []),
   ].filter((filePath) => fs.existsSync(filePath));
 

@@ -15,7 +15,6 @@ export interface Config {
   chromePath?: string;
   tester: string;
   region: string;
-  quality: number;
   skipExcel: boolean;
   skipZip: boolean;
   auditTimeoutMs: number;
@@ -23,8 +22,7 @@ export interface Config {
 
 export interface CliArgs {
   runIterations: number | undefined;
-  compress: boolean;
-  quality: number;
+  slimExisting: boolean;
   testDate: string;
   tester: string;
   region: string;
@@ -79,20 +77,7 @@ export const args = process.argv.slice(2).reduce<CliArgs>(
         acc.runIterations = Number(process.env.LHR_ITERATIONS) || Number(fileConfig.iterations) || 3;
       }
     }
-    if (arg === '--compress') acc.compress = true;
-    if (arg === '--quality') {
-      const nextVal = arr[i + 1];
-      if (nextVal === undefined) {
-        console.error('❌ Error: --quality flag requires a numeric value between 1 and 100.');
-        process.exit(1);
-      }
-      const val = parseInt(nextVal, 10);
-      if (isNaN(val) || val < 1 || val > 100) {
-        console.error(`❌ Error: Invalid value for --quality: "${nextVal}". Must be a number between 1 and 100.`);
-        process.exit(1);
-      }
-      acc.quality = val;
-    }
+    if (arg === '--slim-existing') acc.slimExisting = true;
     if (arg === '--date' && arr[i + 1] !== undefined && !arr[i + 1].startsWith('--')) {
       acc.testDate = arr[i + 1];
     }
@@ -112,7 +97,7 @@ export const args = process.argv.slice(2).reduce<CliArgs>(
     if (arg === '--no-zip') acc.skipZip = true;
     return acc;
   },
-  { runIterations: undefined, compress: false, quality: 30, testDate: '', tester: '', region: '', excelOutput: undefined, zipOutput: undefined, skipExcel: false, skipZip: false },
+  { runIterations: undefined, slimExisting: false, testDate: '', tester: '', region: '', excelOutput: undefined, zipOutput: undefined, skipExcel: false, skipZip: false },
 );
 
 export const config: Config = {
@@ -125,7 +110,6 @@ export const config: Config = {
   chromePath: process.env.CHROME_PATH || fileConfig.chromePath,
   tester: args.tester || fileConfig.tester || '',
   region: args.region || fileConfig.region || '',
-  quality: fileConfig.quality || 30,
   skipExcel: fileConfig.skipExcel || false,
   skipZip: fileConfig.skipZip || false,
   auditTimeoutMs: process.env.LHR_AUDIT_TIMEOUT_MS !== undefined ? Number(process.env.LHR_AUDIT_TIMEOUT_MS) : (fileConfig.auditTimeoutMs !== undefined ? fileConfig.auditTimeoutMs : 300_000),

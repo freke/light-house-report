@@ -1,15 +1,23 @@
-import { config, args } from './config.js';
+import { config, args, runsDir } from './config.js';
+import * as path from 'path';
 import { sleep, StatsData } from './utils.js';
 import { extractDataFromReports } from './data-extract.js';
-import { compressAllReports } from './compression.js';
+import { slimExistingRuns, slimHtmlReports, synthesizeSummariesFromHtml } from './lhr-slim.js';
 import { runLighthouse } from './lighthouse.js';
 import { generateVisualReport } from './dashboard/index.js';
 import { writeExcelReport } from './excel-export.js';
 import { writeReportsZip } from './zip-export.js';
 
+const htmlBackupDir = path.join(config.baseDir, 'html-backup');
+
 export async function main(): Promise<void> {
-  if (args.compress) {
-    compressAllReports(args.quality);
+  if (args.slimExisting) {
+    console.log('\n🧹 Slimming stored reports (images, prose and row data removed)...');
+    slimExistingRuns(runsDir);
+    slimHtmlReports(htmlBackupDir);
+    console.log('\n🧹 Rebuilding summaries for legacy HTML reports...');
+    synthesizeSummariesFromHtml(htmlBackupDir, runsDir);
+    console.log('\n🏁 Done. Run without --slim-existing to regenerate reports.');
     return;
   }
 
