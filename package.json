@@ -37,7 +37,7 @@
     "archiver": "^7.0.1",
     "chrome-launcher": "^1.2.1",
     "exceljs": "^4.4.0",
-    "lighthouse": "^13.1.0"
+    "lighthouse": "^13.4.1"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
